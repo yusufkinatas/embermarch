@@ -451,6 +451,11 @@ export interface Unit extends EntityBase {
   /** Velocity in tiles/s from the last tick (render / animation). */
   vx: number;
   vy: number;
+  /**
+   * Current max speed in tiles/s, set by sim-core every tick BEFORE movement
+   * (composed stat × buff multipliers; 0 while rooted). Nav multiplies by terrain/Blight factors.
+   */
+  speed: number;
 
   order: Order;
   /** Shift-queued orders (max 8). */
@@ -604,6 +609,8 @@ export interface PlayerState {
   unlockedBuildings: PlayerBuildingId[];
   /** Composed effects for this owner (from setup + completed research). */
   effects: Effect[];
+  /** Flags present in `effects` (value = sum of flag values, or 1 if valueless). Recomputed with effects. */
+  flags: Partial<Record<EffectFlag, number>>;
   /** Rally the Hearth: tick when ready / tick when active effect ends. */
   rallyReadyTick: number;
   rallyUntilTick: number;
