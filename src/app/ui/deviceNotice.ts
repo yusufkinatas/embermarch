@@ -5,6 +5,7 @@
  * localStorage. Styles: src/styles/notice.css.
  */
 import { h } from '../dom';
+import { canFullscreen, enterFullscreen, isIosBrowser } from '../../pwa';
 import { DEVICE_NOTICE_KEY, TOUCH_CONTROLS_LINE, deviceNoticeKind, type DeviceInfo } from '../logic/device';
 
 function media(query: string, fallback: boolean): boolean {
@@ -62,7 +63,8 @@ export function showDesktopNotice(host: HTMLElement, onClose: () => void): Devic
   const copy = COPY[kind];
   const url = `${location.origin}${location.pathname}`;
   const share = h('button', { type: 'button', class: 'btn dn-btn dn-share' }, 'Copy link');
-  const go = h('button', { type: 'button', class: 'btn primary dn-btn dn-go' }, 'Continue anyway');
+  const fullscreen = kind === 'touch' && canFullscreen();
+  const go = h('button', { type: 'button', class: 'btn primary dn-btn dn-go' }, fullscreen ? 'Play full screen' : 'Continue anyway');
   const urlSlot = h('div', { class: 'dn-url-slot' });
   const el = h(
     'div',
@@ -77,6 +79,7 @@ export function showDesktopNotice(host: HTMLElement, onClose: () => void): Devic
       h('div', { class: 'dn-actions' }, kind === 'touch' ? share : null, go),
       urlSlot,
       kind === 'touch' ? h('p', { class: 'dn-touch' }, TOUCH_CONTROLS_LINE) : null,
+      isIosBrowser() ? h('p', { class: 'dn-touch' }, 'For full screen on iPhone or iPad: tap Share, then Add to Home Screen.') : null,
     ),
   );
 
@@ -142,7 +145,10 @@ export function showDesktopNotice(host: HTMLElement, onClose: () => void): Devic
     // Enter / Space still activate the focused button (default action); other keys do nothing.
     if (!(e.target instanceof Node && el.contains(e.target))) e.preventDefault();
   }
-  go.addEventListener('click', close);
+  go.addEventListener('click', () => {
+    if (fullscreen) void enterFullscreen();
+    close();
+  });
   window.addEventListener('keydown', onKey, true);
   host.appendChild(el);
   go.focus({ preventScroll: true });
