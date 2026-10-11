@@ -218,6 +218,10 @@ export interface MetaUnlockDef {
   cost: number;
   desc: string;
   requires: MetaUnlockId | null;
+  /** Player effects granted every battle while owned (e.g. Hawk Eyes flag, Hearth Lore +1 Tiller). */
+  effects?: Effect[];
+  /** GDD scope: SHOULD unlocks have a fallback if the feature is cut. */
+  scope?: 'MUST' | 'SHOULD';
 }
 
 export interface DoctrineDef {

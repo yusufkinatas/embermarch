@@ -9,7 +9,7 @@ See `docs/GDD.md` (design) and `ARCHITECTURE.md` (engineering contract).
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # vitest (headless sim, mapgen, run layer)
+npm test           # vitest (headless sim, mapgen, run layer, bot-played battles in tests/integration)
 npm run e2e        # playwright smoke
 npm run build
 ```

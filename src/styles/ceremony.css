@@ -1,0 +1,273 @@
+/*
+ * Ceremony juice (GDD §P 11): reward cards flip in with a rarity glow, the victory banner sweeps in,
+ * tallies fade in line by line, small feedback animations.
+ */
+
+/* ---------------------------------------------------------------- card flip */
+
+.flip {
+  --d: 0s;
+  perspective: 1400px;
+}
+.flip-inner {
+  position: relative;
+  display: grid;
+  height: 100%;
+  transform-style: preserve-3d;
+  animation: card-flip 0.85s var(--d) cubic-bezier(0.3, 0.7, 0.25, 1) both;
+}
+.flip-face {
+  grid-area: 1 / 1;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  min-width: 0;
+}
+.flip-back {
+  transform: rotateY(180deg);
+}
+.flip-front > .card {
+  height: 100%;
+}
+@keyframes card-flip {
+  0% {
+    transform: translateY(3rem) rotateY(180deg) scale(0.92);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  70% {
+    transform: translateY(-0.4rem) rotateY(-8deg) scale(1.02);
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+/* the rarity glow blooms once the card has turned */
+.flip-front > .card::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px var(--rc),
+    0 0 2.6rem color-mix(in srgb, var(--rc) 60%, transparent);
+  opacity: 0;
+  animation: rarity-bloom 1.6s calc(var(--d) + 0.55s) ease-out both;
+}
+.flip-front > .card.rarity-M::after {
+  animation:
+    rarity-bloom 1.6s calc(var(--d) + 0.55s) ease-out both,
+    mythic-pulse 2.6s calc(var(--d) + 2.2s) ease-in-out infinite;
+}
+@keyframes rarity-bloom {
+  0% {
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+@keyframes mythic-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.card-back {
+  position: relative;
+  height: 100%;
+  min-height: 12rem;
+  border-radius: 5px;
+  border: 1px solid var(--bronze-hi);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 106, 43, 0.28), transparent 45%),
+    repeating-linear-gradient(45deg, rgba(201, 154, 82, 0.09) 0 2px, transparent 2px 14px),
+    repeating-linear-gradient(-45deg, rgba(201, 154, 82, 0.09) 0 2px, transparent 2px 14px),
+    linear-gradient(180deg, #2a1d14, #120c08);
+  box-shadow:
+    inset 0 0 0 0.35rem #1a120c,
+    inset 0 0 0 0.42rem rgba(201, 154, 82, 0.5),
+    0 0.6rem 1.4rem rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cb-sigil {
+  width: 4.6rem;
+  height: 4.6rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bronze-hi);
+  background: radial-gradient(circle at 50% 40%, #5a2410, #1a0c06);
+  color: #ff8c3a;
+  box-shadow: 0 0 1.6rem rgba(255, 106, 43, 0.45);
+}
+.cb-sigil svg {
+  width: 2.6rem;
+  height: 2.6rem;
+}
+
+/* ---------------------------------------------------------------- results banner */
+
+.res-banner .rb-ribbon {
+  animation: banner-sweep 0.95s 0.1s cubic-bezier(0.2, 0.85, 0.25, 1) both;
+}
+.res-banner .rb-text {
+  animation: banner-text 1.1s 0.35s var(--ease-out) both;
+}
+.res-banner .rb-line {
+  animation: fade-up 0.7s 0.85s var(--ease-out) both;
+}
+.res-banner .rb-time {
+  animation: fade-up 0.7s 1.05s var(--ease-out) both;
+}
+@keyframes banner-sweep {
+  0% {
+    clip-path: inset(0 100% 0 0);
+    transform: translateX(-4rem) skewX(-8deg);
+  }
+  70% {
+    clip-path: inset(0 0 0 0);
+    transform: translateX(0.3rem) skewX(1deg);
+  }
+  100% {
+    clip-path: inset(-3rem -6rem -3rem -6rem);
+    transform: none;
+  }
+}
+@keyframes banner-text {
+  0% {
+    opacity: 0;
+    letter-spacing: 0.6em;
+  }
+  100% {
+    opacity: 1;
+    letter-spacing: 0.24em;
+  }
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(0.6rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.res-body > *,
+.summary-grid > * {
+  animation: fade-up 0.6s var(--ease-out) both;
+}
+.res-body > :nth-child(1),
+.summary-grid > :nth-child(1) {
+  animation-delay: 0.6s;
+}
+.res-body > :nth-child(2),
+.summary-grid > :nth-child(2) {
+  animation-delay: 0.75s;
+}
+.res-footer {
+  animation: fade-up 0.6s 1.2s var(--ease-out) both;
+}
+.cl-row {
+  animation: cl-in 0.45s var(--ease-out) both;
+}
+@keyframes cl-in {
+  from {
+    opacity: 0;
+    transform: translateX(-0.6rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------- misc feedback */
+
+.shake {
+  animation: shake 0.4s ease both;
+}
+@keyframes shake {
+  0%,
+  100% {
+    transform: none;
+  }
+  20% {
+    transform: translateX(-0.35rem);
+  }
+  40% {
+    transform: translateX(0.35rem);
+  }
+  60% {
+    transform: translateX(-0.2rem);
+  }
+  80% {
+    transform: translateX(0.2rem);
+  }
+}
+.just-raised {
+  animation: raised 1.1s var(--ease-out) both;
+}
+@keyframes raised {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(255, 210, 122, 0);
+  }
+  30% {
+    transform: scale(1.06);
+    box-shadow: 0 0 2.6rem rgba(255, 210, 122, 0.8);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.peddler-grid.reshuffle > * {
+  animation: fade-up 0.45s var(--ease-out) both;
+}
+.peddler-grid.reshuffle > :nth-child(2) {
+  animation-delay: 0.05s;
+}
+.peddler-grid.reshuffle > :nth-child(3) {
+  animation-delay: 0.1s;
+}
+.peddler-grid.reshuffle > :nth-child(4) {
+  animation-delay: 0.15s;
+}
+.hall-banner.st-affordable .hb-pennant {
+  animation: affordable 2.4s ease-in-out infinite;
+}
+@keyframes affordable {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flip-inner,
+  .res-banner .rb-ribbon,
+  .res-banner .rb-text,
+  .edge.choice,
+  .rn-beckon,
+  .rn-ember {
+    animation-duration: 0.01s !important;
+    animation-iteration-count: 1 !important;
+  }
+}

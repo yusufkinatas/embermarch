@@ -69,7 +69,7 @@ Enemy AI division of labor: the encounter module decides WHAT enemy units do (it
 
 ## Cross-module hooks
 
-- sim-core `killEntity` → `encounter.onEntityDeath(world, e, killerId)`; Retinue/kill credit, rank-ups, boon hooks (Spoils of the Wake, Plunderers) in sim-core.
+- sim-core `killEntity` → `encounter.onEntityDeath(world, e, killerId, opts?)` (`opts.demolished` for a player demolition, which does not break Holdfast "Unbroken"); Retinue/kill credit, rank-ups, boon hooks (Spoils of the Wake, Plunderers) in sim-core.
 - sim-core damage application → `encounter.onEntityDamaged(world, target, attackerId, amount)`.
 - sim-core building complete / player building death → `encounter.onPlayerBuildingChanged(world)` (ward recompute).
 - Terrain change (tree felled) → `nav.onTerrainChanged(world, tile)` (updates grid, pushes `world.dirtyTiles`).
@@ -106,12 +106,13 @@ Enemy AI division of labor: the encounter module decides WHAT enemy units do (it
 Installed by `src/app` at startup (always on; harmless), extended by the battle controller while a battle is mounted:
 
 - App level (screens): `screen(): string` (current screen id: 'title' | 'setup' | 'map' | 'briefing' | 'battle' | 'results' | 'reward' | 'retinue' | 'event' | 'camp' | 'peddler' | 'summary' | 'hall' | 'howto'), `run(): RunState | null`, `meta(): MetaSave`, `newRun(opts?)`, `quickBattle(opts)`.
-- Battle level (battle-shell): `world` (getter), `state()` → `{ time, outcome, res, pop, popCap, playerUnits: Record<type,count>, enemyUnits: number, nestsAlive, selection }`, `spawn(type, x, y, team)`, `grant(res)`, `win()`, `lose()`, `setSpeed(n)`, `step(seconds)` (synchronous sim advance), `forceWave(n, doctrine?)`, `issue(cmd)`, `select(ids)`, `reveal()`, `camera`.
+- Battle level (battle-shell): `world` (getter), `state()` → `{ time, outcome, res, pop, popCap, playerUnits: Record<type,count>, enemyUnits: number, nestsAlive, selection }`, `spawn(type, x, y, team)`, `grant(res)`, `win()`, `lose()`, `setSpeed(n)`, `step(seconds)` (synchronous sim advance), `forceWave(n, doctrine?)`, `issue(cmd)`, `select(ids)`, `reveal()`, `camera`, plus `pause(on?)`, `ended()` and `renderStats()` (renderer frame timings).
 - URL params: `?seed=N` (new run seed), `?battle=raze|holdfast|elite|boss|beacons&depth=N&seed=N` (skip straight into a quick battle).
 
 ## Testing conventions
 
 - Unit/integration tests: `tests/<module>/*.test.ts` (Vitest, node env). Shared fixtures live in your own module folder (`tests/<module>/helpers.ts`).
+- End-to-end headless battles: `tests/integration/` (integrator). `bot.ts` is a scripted player that only uses `issueCommand`; `harness.ts` runs a real battle (mapgen + createWorld + stepWorld) and records waves, combat, economy, NaN checks and tick timings; `battle.test.ts` and `run.test.ts` assert on them (`BATTLE_LOG=1` prints a per-battle summary). The bot also runs inside the browser game: in the dev server, `await import('/tests/integration/bot.ts')` and call `new Bot(__game.world).update(true)` on a timer.
 - Typecheck only what you own while others are mid-flight: `npx tsc --noEmit 2>&1 | grep -E '^src/(your/dirs)|^tests/(your-dir)'`.
 - Run only your tests: `npx vitest run tests/<module>`.
 - Browser checks: `npx vite --port <unique port>` in the background or `npm run build && npx vite preview --port <port>`; Playwright scripts in your scratch dir or `e2e/`. Use a port unique to your agent (nav 5181, sim-core 5182, encounter 5183, mapgen-audio 5184, run 5185, render 5186, battle-shell 5187, screens 5188, integrator 5190). Kill your servers when done.

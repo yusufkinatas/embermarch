@@ -72,10 +72,54 @@ export interface RunStats {
   timePlayed: number;
 }
 
+/**
+ * How a queued Boon/Draft pick rolls its options. Options are rolled lazily when the step reaches
+ * the head of the queue, so an earlier pick (synergy, ownership) shapes the next offer.
+ */
+export interface OfferSpec {
+  /** 'reward' = post-battle reward (first-offer Rule guarantee, +1 option effects apply). */
+  source: 'reward' | 'event' | 'camp' | 'opening';
+  /** Boon rarity table: 'normal' 62/30/8, 'elite' 0/75/25, or every card of one rarity. */
+  rarity?: 'normal' | 'elite' | 'C' | 'R' | 'M';
+  /** Fixed option count (ignores +1 option effects). */
+  size?: number;
+  /** Creeping Wake: this battle's reward offers show one more option. */
+  bonusOption?: boolean;
+  /** Boon included first if eligible (Thorn-Touched Smith: Ember-Tempered Mail). */
+  featured?: BoonId;
+  /** True once `options` have been rolled. */
+  rolled: boolean;
+}
+
 export type RewardStep =
-  | { kind: 'boon'; title: string; options: BoonId[]; skipCrowns: number }
-  | { kind: 'draft'; title: string; options: DraftId[]; skipCrowns: number }
-  | { kind: 'retinue'; title: string; candidates: CarriedUnit[]; capPop: number };
+  | {
+      kind: 'boon';
+      title: string;
+      options: BoonId[];
+      skipCrowns: number;
+      /** Short line under the title, e.g. "Rare or better". */
+      subtitle?: string;
+      spec?: OfferSpec;
+    }
+  | {
+      kind: 'draft';
+      title: string;
+      options: DraftId[];
+      skipCrowns: number;
+      subtitle?: string;
+      spec?: OfferSpec;
+    }
+  | {
+      kind: 'retinue';
+      title: string;
+      candidates: CarriedUnit[];
+      capPop: number;
+      subtitle?: string;
+      /** Veteran's Oath: picked units gain +1 Rank (max III) when carried. */
+      rankUp?: boolean;
+      /** True once capPop / rankUp have been computed (at the head of the queue). */
+      rolled?: boolean;
+    };
 
 export interface PeddlerItem {
   kind: 'boon' | 'draft' | 'resolve' | 'sellswords' | 'reroll';
@@ -91,6 +135,8 @@ export interface PeddlerItem {
 export interface PeddlerStock {
   items: PeddlerItem[];
   rerollCost: number;
+  /** Rerolls bought at this Peddler (cost 15 + 10 per repeat, before Guild Ties). */
+  rerolls?: number;
 }
 
 export interface RunState {
@@ -131,6 +177,18 @@ export interface RunState {
   over: null | 'won' | 'lost';
   /** How many runs this profile had started when this run began (first-3-runs hints). */
   profileRunIndex: number;
+  /** Set by endRun (makes endRun idempotent: Renown is awarded once). */
+  summary?: RunSummary;
+  /** Result of the last finishBattle (lets the Results screen survive a reload). */
+  lastBattle?: PostBattle;
+}
+
+/** Camp choice as shown on the Camp screen. */
+export interface CampOption {
+  id: 'rest' | 'drill' | 'muster';
+  label: string;
+  /** Description resolved for the current run state (e.g. Drill with an empty Retinue). */
+  desc: string;
 }
 
 export interface Settings {

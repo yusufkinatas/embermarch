@@ -310,6 +310,11 @@ export interface MapAnchors {
   nests: TilePos[];
   /** Thornspires guarding Nests (1x1), each with the index of its Nest. */
   nestSpires: (TilePos & { nestIndex: number })[];
+  /**
+   * One extra validated, reachable, reserved 1x1 spire site per Nest (within 4 tiles of it, free of
+   * other footprints). Unused unless encounter needs another spire, e.g. Fortified Nests' +1 spire.
+   */
+  spareSpires?: (TilePos & { nestIndex: number })[];
   pickets: PicketSpawn[];
   resources: ResourceSpawn[];
   caches: (TilePos & { type: 'ruined_cache' | 'ancient_cache' })[];

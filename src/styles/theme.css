@@ -1,5 +1,5 @@
 /* EMBERMARCH design tokens (GDD §A palette). Shared by HUD and screens. */
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Alegreya+Sans:wght@400;500;700&display=swap');
+@import './fonts.css';
 
 :root {
   --panel: #1a1612;
@@ -30,6 +30,22 @@
   --font-body: 'Alegreya Sans', 'Segoe UI', system-ui, sans-serif;
   --radius: 6px;
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+
+  /* Screens (additive). */
+  --void: #0b0a0f;
+  --ink: #2b1d0e;
+  --ink-soft: #3b2c1c;
+  --parchment: #e9d9b0;
+  --bronze: #8a6634;
+  --bronze-hi: #c99a52;
+  --blight-hi: #a04fb8;
+  --text-dim: #7d705a;
+  --gold-text: linear-gradient(180deg, #fff1c4 0%, #ffd27a 38%, #e8a33d 70%, #a8692a 100%);
+  --ember-btn: linear-gradient(180deg, #c8571f 0%, #9c3615 55%, #6e230d 100%);
+  --ember-btn-hi: linear-gradient(180deg, #e46a27 0%, #b8441a 55%, #822a10 100%);
+  --panel-grad: linear-gradient(180deg, rgba(42, 35, 28, 0.96) 0%, rgba(26, 22, 18, 0.97) 40%, rgba(18, 15, 12, 0.98) 100%);
+  --glow-ember: 0 0 18px rgba(255, 106, 43, 0.45), 0 0 4px rgba(255, 179, 71, 0.6);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 *,
@@ -50,6 +66,14 @@ body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   user-select: none;
+}
+
+/*
+ * Non-battle screens are laid out in rem against a 1280x720 design canvas (80rem x 45rem) and scale
+ * uniformly with the viewport. The class is removed while a battle is mounted so the HUD sees 16px.
+ */
+html.ui-scaled {
+  font-size: clamp(12px, min(1.25vw, 2.2223vh), 26px);
 }
 
 #app {

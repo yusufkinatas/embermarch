@@ -15,6 +15,13 @@ export interface EnemyUnitAI {
   postY: number;
   /** Wave index this unit belongs to (-1 if none). */
   wave: number;
+  /**
+   * Cohesion speed cap in tiles/s (0 or absent = none). Encounter also writes it into
+   * unit.move.speedCap; sim-core may copy it into any MoveIntent it builds for this unit.
+   */
+  speedCap?: number;
+  /** Holdfast cleanup charge: the unit should not kite (sim-core kite behaviour may read this). */
+  noKite?: boolean;
   [key: string]: unknown;
 }
 
@@ -82,6 +89,29 @@ export interface EncounterView {
   dusk: number;
   /** Enemy units that should be shown on the minimap regardless of fog (final-wave cleanup). */
   revealedEnemyIds: number[];
+}
+
+/**
+ * Encounter-owned numbers for sim-core's buildBattleResult (see getEncounterResult in ./index).
+ * Plunder Crowns already include Nest/Picket/Cache plunder, Fortified Nests ×2 and Plunderers +10.
+ */
+export interface EncounterResult {
+  plunderCrowns: number;
+  /** Victory reached at or before par (false when there is no par). */
+  underPar: boolean;
+  /** Par in seconds (null when the objective has none). */
+  par: number | null;
+  /** Holdfast: no completed player building was lost. False for other objectives. */
+  unbroken: boolean;
+  /** Holdfast: every Nest destroyed. False for other objectives. */
+  uprooted: boolean;
+  nestsDestroyed: number;
+  picketsDestroyed: number;
+  cachesLooted: number;
+  ancientCacheLooted: boolean;
+  lordSlain: boolean;
+  regentSlain: boolean;
+  wavesLaunched: number;
 }
 
 /** World.encounter. Opaque to other modules except via getEncounterView(). */

@@ -8,8 +8,11 @@ import type {
   BattleSetup,
   BuildingId,
   GameEvent,
+  HouseId,
   PlayerBuildingId,
+  ResearchId,
   ResourceNodeId,
+  UnitClass,
   UnitId,
   World,
 } from '../sim/types';
@@ -52,8 +55,30 @@ export function createBattleUIState(): BattleUIState {
   };
 }
 
+/**
+ * Extra icon keys drawn by render/icons.ts (additive): research, abilities and commands, unit classes
+ * (Strong vs / Weak vs). 'house_ability' is a generic flame; ability_<houseId> (as emitted by sim/queries
+ * commandCard) aliases the per-House ability icons.
+ */
+export type ExtraIconKind =
+  | ResearchId
+  | 'rally_hearth'
+  | 'house_ability'
+  | 'ability_horn'
+  | 'ability_hymn'
+  | 'ability_firepot'
+  | 'ability_volley'
+  | `ability_${HouseId}`
+  | 'hawk'
+  | 'rally'
+  | 'demolish'
+  | 'stop'
+  | 'hold'
+  | 'attack_move'
+  | `cls_${UnitClass}`;
+
 /** Anything that can be drawn as an icon/portrait. */
-export type IconKind = UnitId | BuildingId | ResourceNodeId | 'tree' | 'grain' | 'timber' | 'ember' | 'crowns' | 'resolve' | 'renown' | 'pop';
+export type IconKind = UnitId | BuildingId | ResourceNodeId | 'tree' | 'grain' | 'timber' | 'ember' | 'crowns' | 'resolve' | 'renown' | 'pop' | ExtraIconKind;
 
 export interface Renderer {
   /** Resize the backing store (CSS px + devicePixelRatio). */
@@ -128,6 +153,8 @@ export interface BattleCallbacks {
   onQuitToTitle(): void;
   /** A first-run hint was dismissed (persist to meta.hintsSeen). */
   onHintSeen?(id: string): void;
+  /** The player changed settings in the in-battle pause menu (persist to meta.settings). */
+  onSettingsChange?(settings: { sfxVolume?: number; muted?: boolean; edgePan?: boolean }): void;
 }
 
 export interface BattleOptions {
@@ -137,6 +164,10 @@ export interface BattleOptions {
   showHints?: boolean;
   edgePan?: boolean;
   panSpeed?: number;
+  /** Initial SFX volume 0..1 (meta.settings.sfxVolume). */
+  sfxVolume?: number;
+  /** Initial mute state (meta.settings.muted). */
+  muted?: boolean;
 }
 
 /** Shape of the battle controller (implemented in src/game/battle.ts). */
