@@ -53,7 +53,7 @@ for (const name of PHONES) {
       await expect(notice).toContainText('On touch: tap to select, tap the ground to move or attack, drag to pan.');
       await expect(page.getByRole('button', { name: 'Copy link' })).toBeVisible();
       await page.screenshot({ path: `${SHOTS}/${tag}-01-notice.png` });
-      await tapInView(page, page.getByRole('button', { name: 'Continue anyway' }));
+      await tapInView(page, page.locator('.dn-go'));
       await expect(notice).toHaveCount(0);
 
       // Remembered across a reload.
