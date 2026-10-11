@@ -96,6 +96,13 @@ export function clearRun(): void {
 export function resolveInterruptedBattle(run: RunState, meta: MetaSave): string | null {
   return lifecycle.resolveInterruptedBattle(run, meta);
 }
+/**
+ * Boss battle: record the Last Stands spent so far (world.lastStandsUsed). Saves when it rises.
+ * An abandoned boss battle then costs 1 + that many Resolve on Continue.
+ */
+export function recordLastStands(run: RunState, used: number): void {
+  lifecycle.recordLastStands(run, used);
+}
 
 // ---- Map / nodes ----------------------------------------------------------
 /** Nodes the player may enter next (column 1 start node at run start). */
@@ -106,8 +113,13 @@ export function reachableNodes(run: RunState): RunNode[] {
 export function enterNode(run: RunState, meta: MetaSave, nodeId: string): NodeEntry {
   return lifecycle.enterNode(run, meta, nodeId);
 }
+/** Pure: the briefing for a battle node, for a preview before the route is committed. */
 export function getBriefing(run: RunState, meta: MetaSave, nodeId: string): Briefing {
   return briefing.getBriefing(run, meta, nodeId);
+}
+/** What winning a battle node pays, as one line (map tooltip and briefing share it). */
+export function nodeRewardText(run: RunState, node: RunNode): string {
+  return briefing.nodeRewardText(run, node);
 }
 /** Build the BattleSetup for the current battle node, set battleInProgress, save. */
 export function startBattle(run: RunState, meta: MetaSave, vanguard: VanguardId): BattleSetup {

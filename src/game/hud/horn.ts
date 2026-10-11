@@ -23,6 +23,11 @@ interface SpentBanner {
   bornAt: number;
 }
 
+/** Real seconds the full Horn callout shows when a wave starts mustering. */
+export const HORN_CALLOUT_S = 6;
+/** Real seconds it re-expands when the wave launches or gets scouted. */
+export const HORN_LAUNCH_S = 4;
+
 const DOCTRINE_GLYPH: Record<string, keyof typeof GLYPHS> = {
   swarm: 'infantry',
   quill: 'ranged',
@@ -47,6 +52,10 @@ export class WaveHorn {
   private compKey = '';
   private spent: SpentBanner[] = [];
   private lastWave = -1;
+  private lastPhase = '';
+  private lastRevealed = false;
+  /** Real time until which the Horn shows its full callout; afterwards it collapses to one line. */
+  private expandedUntil = 0;
 
   constructor(parent: HTMLElement, private readonly ctx: HudContext) {
     this.el = h('div', 'bt-horn-wrap', parent);
@@ -58,7 +67,8 @@ export class WaveHorn {
     this.notes = h('div', 'bt-horn-notes', main);
     this.popups = h('div', 'bt-horn-popups', this.el);
     this.spentBox = h('div', 'bt-spent-list', this.el);
-    ctx.tooltip.bind(this.plate, () => this.tip());
+    // The plate lets clicks through to the battlefield; the small tags keep their tooltips.
+    ctx.tooltip.bind(this.comp, () => this.tip());
     ctx.tooltip.bind(this.doctrine, () => {
       const v = ctx.view;
       if (!v) return null;
@@ -79,9 +89,18 @@ export class WaveHorn {
     };
   }
 
+  /** True while the full (multi-line) callout shows: the first seconds of a muster, launch or scouting. */
+  get expanded(): boolean {
+    return this.ctx.now < this.expandedUntil;
+  }
+
   update(): void {
     const v = this.ctx.view;
     const horn = v?.horn ?? null;
+    if (!horn) {
+      this.lastPhase = '';
+      this.lastRevealed = false;
+    }
     const ascSoon = v && v.ascendantIn !== null && v.ascendantIn <= 30 && v.ascendantIn > 0 ? v.ascendantIn : null;
     setHidden(this.plate, !horn && ascSoon === null);
     if (v) {
@@ -97,6 +116,8 @@ export class WaveHorn {
       setText(this.title, 'The Thornwake stirs');
       this.setComp('');
       setText(this.notes, TEXT.ascendantSoon(formatCountdown(ascSoon)));
+      setHidden(this.notes, false);
+      toggleClass(this.plate, 'collapsed', false);
       toggleClass(this.plate, 'advancing', false);
       toggleClass(this.plate, 'great', false);
     }
@@ -112,12 +133,22 @@ export class WaveHorn {
     setText(this.title, parts.join(' · '));
     toggleClass(this.plate, 'advancing', horn.phase === 'advancing');
     toggleClass(this.plate, 'great', great);
+    const now = this.ctx.now;
     if (horn.wave !== this.lastWave) {
       this.lastWave = horn.wave;
       this.plate.classList.remove('sounding');
       void this.plate.offsetWidth; // restart the entry animation
       this.plate.classList.add('sounding');
+      this.expandedUntil = now + HORN_CALLOUT_S;
+    } else if (horn.phase !== this.lastPhase && this.lastPhase !== '') {
+      this.expandedUntil = Math.max(this.expandedUntil, now + HORN_LAUNCH_S);
+    } else if (horn.revealed && !this.lastRevealed) {
+      this.expandedUntil = Math.max(this.expandedUntil, now + HORN_LAUNCH_S);
     }
+    this.lastPhase = horn.phase;
+    this.lastRevealed = horn.revealed;
+    const collapsed = !this.expanded;
+    toggleClass(this.plate, 'collapsed', collapsed);
     if (horn.revealed && horn.composition.length) {
       const key = horn.composition.map((c) => `${c.type}:${c.count}`).join('|');
       if (key !== this.compKey) {
@@ -138,7 +169,8 @@ export class WaveHorn {
     const notes = horn.notes.slice();
     if (ascSoon !== null && !notes.some((n) => n.startsWith('Ascendant'))) notes.push(TEXT.ascendantSoon(formatCountdown(ascSoon)));
     setText(this.notes, notes.join(' · '));
-    setHidden(this.notes, notes.length === 0);
+    // Collapsed: one line (title · size or icons); the notes return with the next callout.
+    setHidden(this.notes, notes.length === 0 || collapsed);
   }
 
   private setComp(html: string): void {

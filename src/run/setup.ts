@@ -32,10 +32,26 @@ import type {
   ResourceBag,
   VanguardId,
 } from '../sim/types';
-import { BOSS_DEPTH, rollBiome, rollDoctrine } from './runmap';
+import { BOSS_DEPTH, START_ID, rollBiome, rollDoctrine } from './runmap';
 import { saveRun } from './persistence';
 import type { MetaSave, RunNode, RunState } from './types';
 import { CORE_BUILDINGS, CORE_UNITS, atLeastRank, cloneUnits, currentNodeOf, findPending, isBattleNode } from './util';
+
+/**
+ * First march: the start battle (column I, always Raze d1) of a profile's first 3 runs has its
+ * waves ×0.85. It goes through BattleSetup.waveMult, on top of Thornbound and Hollow Envoy.
+ */
+export const FIRST_MARCH_WAVE_MULT = 0.85;
+export const FIRST_MARCH_RUNS = 3;
+
+export function firstMarchEased(run: RunState, node: RunNode): boolean {
+  return node.id === START_ID && run.profileRunIndex < FIRST_MARCH_RUNS;
+}
+
+/** Briefing line for the first-march easing. */
+export function firstMarchLine(): string {
+  return `First march: the Thornwake wakes slowly (waves −${Math.round((1 - FIRST_MARCH_WAVE_MULT) * 100)}%).`;
+}
 
 /** Units and buildings unlocked by the core set plus drafts. */
 export function unlockedFor(drafts: readonly DraftId[]): { units: PlayerUnitId[]; buildings: PlayerBuildingId[] } {
@@ -143,7 +159,7 @@ export function composeSetup(run: RunState, meta: MetaSave, node: RunNode, vangu
     sellswords: cloneUnits(run.sellswords),
     wardenHpPct: findPending(run, 'warden_half_hp') ? 0.5 : 1,
     resolve: run.resolve,
-    waveMult: run.waveMult * thornboundFor(run.tier).waveMult,
+    waveMult: run.waveMult * thornboundFor(run.tier).waveMult * (firstMarchEased(run, node) ? FIRST_MARCH_WAVE_MULT : 1),
     coldWatchfire: !!findPending(run, 'cold_watchfire'),
     showHints: showHintsFor(run, meta),
     bonusRes,
@@ -159,6 +175,7 @@ export function startBattle(run: RunState, meta: MetaSave, vanguard: VanguardId)
   if (!VANGUARD_IDS.includes(vanguard)) throw new Error(`Unknown Vanguard "${vanguard}"`);
   const setup = composeSetup(run, meta, node, vanguard);
   run.battleInProgress = true;
+  run.bossLastStandsUsed = 0;
   saveRun(run);
   return setup;
 }

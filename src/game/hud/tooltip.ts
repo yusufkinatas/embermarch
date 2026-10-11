@@ -7,6 +7,7 @@ import type { Cost, ResourceType } from '../../sim/types';
 import { h, setBgImage, setHidden } from '../dom';
 import { costEntries } from '../format';
 import { iconSrc } from '../glyphs';
+import { hotkeyLabel } from '../keys';
 
 export interface TipContent {
   title: string;
@@ -117,7 +118,7 @@ export class Tooltip {
     const head = h('div', 'bt-tip-head', el);
     const title = h('span', 'bt-tip-title', head, c.title);
     if (c.color) title.style.color = c.color;
-    if (c.hotkey) h('kbd', 'bt-kbd', head, c.hotkey);
+    if (c.hotkey) h('kbd', 'bt-kbd', head, hotkeyLabel(c.hotkey));
     if (sub) h('div', 'bt-tip-sub', el, sub);
     const cost = c.cost ? costEntries(c.cost) : [];
     if (cost.length) {

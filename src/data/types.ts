@@ -232,7 +232,12 @@ export interface DoctrineDef {
   /** Wave target rule id interpreted by the encounter module. */
   target: 'hearth' | 'nearest_military' | 'storehouse_tillers' | 'nearest_tower';
   hint: string;
+  /** Counsel line, starting with the doctrine name. */
   answer: string;
+  /** Counsel naming only core units, shown when any of `answerDrafts` is not unlocked for the run. */
+  answerCore?: string;
+  /** Drafted units the full `answer` recommends. */
+  answerDrafts?: PlayerUnitId[];
   /** Short icon glyph name for banners. */
   icon: string;
 }

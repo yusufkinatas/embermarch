@@ -6,6 +6,9 @@
  * - Idle military (and rallied Tillers): acquire the nearest visible enemy within 6 tiles
  *   (ranged: max(range + 1, 6); rallied Tillers: 5), preferring units over buildings; chase up to
  *   10 tiles from the idle spot, then walk back ignoring enemies. Retaliate against recent attackers.
+ * - Units with a structure multiplier below 0.5 (Bowman, Outrider, Courser) never pick a structure
+ *   on their own (idle, attack-move, hold): only an explicit attack order sends them at one. Idle,
+ *   shot by a firing structure and with no unit to fight, they step 1.5 tiles outside its range.
  * - Attack-move: same acquisition while moving (leash from where the engagement began).
  * - Hold: never moves; fights whatever is in range. Move: ignores enemies.
  * - Melee retarget: a melee unit failing to close on its target for 1.5 s retargets the nearest
@@ -15,10 +18,11 @@
  *   while idle; their orders execute normally. Enemy units with ai === null use the generic logic.
  */
 import { ACQUIRE, COMBAT, RALLY_HEARTH, acquireRadius } from '../data/balance';
+import { BUILDINGS } from '../data/buildings';
 import { UNITS } from '../data/units';
 import { emit } from './alerts';
 import { applyPacket, canAttack, computeDamagePacket } from './combat';
-import { buffSum, doomed, hasBuff, hostile, ticks, ucore } from './core';
+import { buffSum, doomed, hasBuff, hostile, pointRectDist, ticks, ucore } from './core';
 import { buildBehavior, depositBehavior, fleeBehavior, gatherBehavior } from './economy';
 import { getEntity } from './entities';
 import { completeOrder, startOrder } from './orders';
@@ -26,9 +30,9 @@ import { moveDone, movePoint, moveToEntity, stopMoving } from './movement';
 import { edgeDistance } from './nav/geometry';
 import { queryUnits } from './nav/spatial';
 import { spawnProjectile } from './projectiles';
-import { unitStats } from './stats';
+import { buildingStats, unitStats } from './stats';
 import type { UnitStats } from './stats';
-import type { Entity, Order, Unit, World } from './types';
+import type { Building, Entity, Order, Unit, World } from './types';
 import { PLAYER, TICK_DT } from './types';
 
 /** Range tolerance when deciding a unit can swing / shoot. */
@@ -55,6 +59,15 @@ function autoAcquires(world: World, u: Unit): boolean {
   return u.cls !== 'worker' || rallied(world, u);
 }
 
+/**
+ * May this unit pick enemy structures on its own initiative? Encounter-driven units always may;
+ * player-style units only with a structure multiplier of at least 0.5 (GDD §F).
+ */
+export function autoTargetsStructures(world: World, u: Unit): boolean {
+  if (u.ai !== null) return true;
+  return unitStats(world, u.owner, u.type, u.rank).structMod >= ACQUIRE.autoStructureMinMod;
+}
+
 function acquireRange(u: Unit, st: UnitStats): number {
   if (u.cls === 'worker') return RALLY_HEARTH.fightRadius;
   return acquireRadius(st.range);
@@ -63,8 +76,9 @@ function acquireRange(u: Unit, st: UnitStats): number {
 /**
  * Nearest attackable enemy within `radius` (edge distance), units preferred over buildings.
  * Ranged attackers skip units already doomed by projectiles in flight when another target exists.
+ * `structures` false: units only (see autoTargetsStructures).
  */
-export function acquireTarget(world: World, u: Unit, radius: number, exclude = 0): Entity | null {
+export function acquireTarget(world: World, u: Unit, radius: number, exclude = 0, structures = true): Entity | null {
   const def = UNITS[u.type];
   const ranged = def.range >= COMBAT.rangedThreshold;
   let best: Entity | null = null;
@@ -92,6 +106,7 @@ export function acquireTarget(world: World, u: Unit, radius: number, exclude = 0
   }
   if (best) return best;
   if (fallback) return fallback;
+  if (!structures) return null;
   for (const b of world.buildings) {
     if (!b.alive || b.untargetable || b.id === exclude || !hostile(b.owner, u.owner)) continue;
     const d = edgeDistance(u, b);
@@ -110,7 +125,7 @@ export function acquireTarget(world: World, u: Unit, radius: number, exclude = 0
  */
 function preferUnit(world: World, u: Unit, t: Entity, radius: number): Unit | null {
   if (t.kind !== 'building' || !scanDue(world, u)) return null;
-  const alt = acquireTarget(world, u, radius);
+  const alt = acquireTarget(world, u, radius, 0, false);
   if (alt && alt.kind === 'unit') return alt;
   if (u.lastAttackerId && u.lastDamagedTick >= 0 && world.tick - u.lastDamagedTick <= ticks(1)) {
     const a = getEntity(world, u.lastAttackerId);
@@ -174,7 +189,7 @@ function engage(world: World, u: Unit, target: Entity, canMove: boolean): boolea
       // Ranged overkill avoidance: an auto-acquired target already doomed by arrows in flight is
       // swapped for another target in range.
       if (st.range >= COMBAT.rangedThreshold && u.order.type !== 'attack' && t.kind === 'unit' && doomed(world, t)) {
-        const alt = acquireTarget(world, u, st.range + RANGE_EPS, t.id);
+        const alt = acquireTarget(world, u, st.range + RANGE_EPS, t.id, autoTargetsStructures(world, u));
         if (alt && !(alt.kind === 'unit' && doomed(world, alt))) {
           u.targetId = alt.id;
           t = alt;
@@ -193,7 +208,7 @@ function engage(world: World, u: Unit, target: Entity, canMove: boolean): boolea
     uc.lastTargetDist = d;
     if (uc.noReachTime >= ACQUIRE.meleeRetargetTime) {
       uc.noReachTime = 0;
-      const alt = acquireTarget(world, u, ACQUIRE.meleeRetargetRadius, t.id);
+      const alt = acquireTarget(world, u, ACQUIRE.meleeRetargetRadius, t.id, autoTargetsStructures(world, u));
       if (alt) {
         u.targetId = alt.id;
         if (u.order.type === 'attack') u.order.targetId = alt.id;
@@ -258,6 +273,89 @@ function kite(world: World, u: Unit): boolean {
 // Orders
 // ---------------------------------------------------------------------------
 
+/**
+ * A hostile structure that shot this unit within the last second, or one firing at a friendly unit
+ * while this unit stands inside its range (a group leaves together instead of one by one).
+ */
+function firingStructure(world: World, u: Unit): Building | null {
+  const recent = ticks(1);
+  if (u.lastAttackerId && u.lastDamagedTick >= 0 && world.tick - u.lastDamagedTick <= recent) {
+    const a = getEntity(world, u.lastAttackerId);
+    if (a && a.kind === 'building' && a.alive && hostile(a.owner, u.owner) && BUILDINGS[a.type].attack) return a;
+  }
+  for (const b of world.buildings) {
+    if (!b.alive || !b.built || !hostile(b.owner, u.owner) || world.tick - b.lastAttackTick > recent) continue;
+    const atk = buildingStats(world, b.owner, b.type).attack;
+    if (!atk) continue;
+    const tgt = b.targetId ? world.entities.get(b.targetId) : undefined;
+    if (!tgt || tgt.owner !== u.owner) continue;
+    if (edgeDistance(u, b) <= atk.range + RANGE_EPS) return b;
+  }
+  return null;
+}
+
+/**
+ * An idle unit that will not fight structures is being shot by one: walk to a point 1.5 tiles outside
+ * its attack range along the structure-to-unit line and make that the new idle spot, so it does not
+ * drift back in (GDD §F).
+ */
+function stepOutOfRange(world: World, u: Unit, b: Building): void {
+  if (!b.alive || !hostile(b.owner, u.owner)) return;
+  const atk = buildingStats(world, b.owner, b.type).attack;
+  if (!atk) return;
+  const clearOf = (x: number, y: number): boolean => pointRectDist(x, y, b.tx, b.ty, b.w, b.h) - u.radius > atk.range + RANGE_EPS;
+  // Already walking to a spot outside its range: keep going.
+  const m = u.move;
+  if (m && m.targetId === 0 && Math.abs(m.x - u.homeX) < 0.01 && Math.abs(m.y - u.homeY) < 0.01 && clearOf(u.homeX, u.homeY)) return;
+  const dx = u.x - b.x;
+  const dy = u.y - b.y;
+  const base = Math.hypot(dx, dy) < 1e-6 ? Math.PI / 2 : Math.atan2(dy, dx);
+  // Half the footprint diagonal covers the edge-to-edge range in every direction.
+  const r = atk.range + Math.hypot(b.w, b.h) / 2 + u.radius + ACQUIRE.structureStepOut;
+  const at = (a: number): { x: number; y: number } => ({
+    x: Math.max(0.5, Math.min(world.map.w - 0.5, b.x + Math.cos(a) * r)),
+    y: Math.max(0.5, Math.min(world.map.h - 0.5, b.y + Math.sin(a) * r)),
+  });
+  // Straight out along the structure-to-unit line, else the nearest direction around it that is
+  // walkable and has a clear straight walk (trees, water or buildings behind the unit).
+  let pick: { x: number; y: number } | null = null;
+  let fallback: { x: number; y: number } | null = null;
+  for (const off of STEP_OUT_ANGLES) {
+    const p = at(base + off);
+    if (!clearOf(p.x, p.y) || !walkableAt(world, p.x, p.y)) continue;
+    if (straightWalk(world, u.x, u.y, p.x, p.y)) {
+      pick = p;
+      break;
+    }
+    fallback ??= p;
+  }
+  const p = pick ?? fallback ?? at(base);
+  u.homeX = p.x;
+  u.homeY = p.y;
+  u.targetId = 0;
+  movePoint(world, u, u.homeX, u.homeY, 0.3, false);
+}
+
+/** Step-out directions tried around the structure-to-unit line (radians), nearest first. */
+const STEP_OUT_ANGLES = [0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6, 2.1, -2.1];
+
+function walkableAt(world: World, x: number, y: number): boolean {
+  const tx = Math.floor(x);
+  const ty = Math.floor(y);
+  if (tx < 0 || ty < 0 || tx >= world.map.w || ty >= world.map.h) return false;
+  return world.grid.blocked[ty * world.map.w + tx] === 0;
+}
+
+/** No blocked tile on the straight segment (sampled every 0.35 tiles). */
+function straightWalk(world: World, x0: number, y0: number, x1: number, y1: number): boolean {
+  const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 0.35);
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    if (!walkableAt(world, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)) return false;
+  }
+  return true;
+}
+
 function idleBehavior(world: World, u: Unit): void {
   if (!autoAcquires(world, u)) {
     if (u.ai === null) stopMoving(world, u);
@@ -290,10 +388,15 @@ function idleBehavior(world: World, u: Unit): void {
     }
   }
   if (!t && scanDue(world, u)) {
-    t = acquireTarget(world, u, acquireRange(u, st));
+    const structures = autoTargetsStructures(world, u);
+    t = acquireTarget(world, u, acquireRange(u, st), 0, structures);
     if (!t && u.lastAttackerId && u.lastDamagedTick >= 0 && world.tick - u.lastDamagedTick <= ticks(1)) {
       const a = getEntity(world, u.lastAttackerId);
-      if (a && canAttack(world, u, a) && edgeDistance(u, a) <= ACQUIRE.leash) t = a;
+      if (a && (structures || a.kind !== 'building') && canAttack(world, u, a) && edgeDistance(u, a) <= ACQUIRE.leash) t = a;
+    }
+    if (!t && !structures) {
+      const b = firingStructure(world, u);
+      if (b) stepOutOfRange(world, u, b);
     }
     if (t) u.targetId = t.id;
   }
@@ -321,7 +424,7 @@ function holdBehavior(world: World, u: Unit): void {
     t = null;
   }
   if (!t && (u.ai === null || u.targetId === 0) && scanDue(world, u)) {
-    t = acquireTarget(world, u, st.range + RANGE_EPS);
+    t = acquireTarget(world, u, st.range + RANGE_EPS, 0, autoTargetsStructures(world, u));
     if (t) u.targetId = t.id;
   }
   if (t) engage(world, u, t, false);
@@ -357,7 +460,7 @@ function attackMoveBehavior(world: World, u: Unit): void {
     }
     if (!t && scanDue(world, u)) {
       const st = unitStats(world, u.owner, u.type, u.rank);
-      t = acquireTarget(world, u, acquireRange(u, st));
+      t = acquireTarget(world, u, acquireRange(u, st), 0, autoTargetsStructures(world, u));
       if (t) {
         u.targetId = t.id;
         uc.engageX = u.x;

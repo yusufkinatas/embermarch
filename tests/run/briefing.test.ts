@@ -1,7 +1,21 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DOCTRINES, MODIFIERS } from '../../src/data';
-import { enterNode, getBriefing } from '../../src/run';
-import { forceNode, freshRun, units, useMemoryStorage } from './helpers';
+import { CROWNS, DOCTRINES, MODIFIERS } from '../../src/data';
+import type { DoctrineDef } from '../../src/data/types';
+import { enterNode, getBriefing, nodeRewardText } from '../../src/run';
+import type { DoctrineId, DraftId, PlayerUnitId } from '../../src/sim/types';
+import { forceNode, freshRun, metaWith, units, useMemoryStorage } from './helpers';
+
+/** S11 counsel fields, optional until the sim lane lands them. */
+type CounselDef = DoctrineDef & { answerCore?: string; answerDrafts?: PlayerUnitId[] };
+const DRAFT_UNITS: Record<string, PlayerUnitId> = { draft_shieldwall: 'oathshield', draft_heavy_horse: 'destrier', draft_firecraft: 'brandbow', draft_siegecraft: 'gatebreaker' };
+
+/** The counsel a run with these drafts should see, computed from the doctrine table directly. */
+function expectedCounsel(doctrine: DoctrineId, drafts: DraftId[]): string {
+  const d = DOCTRINES[doctrine] as CounselDef;
+  const have = new Set(drafts.map((x) => DRAFT_UNITS[x]));
+  const missing = (d.answerDrafts ?? []).some((u) => !have.has(u));
+  return missing ? (d.answerCore ?? d.answer) : d.answer;
+}
 
 describe('getBriefing', () => {
   beforeEach(() => useMemoryStorage());
@@ -27,7 +41,8 @@ describe('getBriefing', () => {
     });
     expect(b.vanguards).toEqual(['muster_hall', 'bowyard', 'storehouse']);
     expect(b.doctrineHint).toBe(DOCTRINES[b.doctrine].hint);
-    expect(b.doctrineAnswer).toBe(DOCTRINES[b.doctrine].answer);
+    // Battle 1 has no drafts: the counsel names core units only once S11 adds answerCore.
+    expect(b.doctrineAnswer).toBe(expectedCounsel(b.doctrine, []));
     expect(b.rewardDesc).toMatch(/Draft/);
     expect(b.quitCostText).toMatch(/Retreat/);
   });
@@ -79,4 +94,67 @@ describe('getBriefing', () => {
     const { node } = forceNode(run, meta, 'camp');
     expect(() => getBriefing(run, meta, node.id)).toThrow();
   });
+
+  it('counsel names drafted units only once the run has them (Spines)', () => {
+    const { run, meta } = freshRun();
+    const { node } = forceNode(run, meta, 'battle', { battle: { doctrine: 'spines' } });
+    const spines = DOCTRINES.spines as CounselDef;
+    const bare = getBriefing(run, meta, node.id).doctrineAnswer!;
+    expect(bare).toBe(expectedCounsel('spines', []));
+    if (spines.answerCore !== undefined && spines.answerDrafts?.length) {
+      expect(bare).not.toMatch(/Oathshield|Destrier/);
+    } else {
+      expect(bare).toBe(spines.answer); // before S11: the full answer
+    }
+    run.drafts = ['draft_shieldwall', 'draft_heavy_horse'];
+    expect(getBriefing(run, meta, node.id).doctrineAnswer).toBe(spines.answer);
+    run.profileRunIndex = 3;
+    expect(getBriefing(run, meta, node.id).doctrineAnswer).toBeNull();
+  });
+
+  it('Your Host counts the real Tillers: Tallow +1, Hearthborn +2, Refugees, Hearth Lore', () => {
+    const meta = metaWith(['house_tallow', 'house_grimbrand', 'house_lowmere']);
+    const ardent = freshRun({ meta });
+    expect(getBriefing(ardent.run, meta, 'start')).toMatchObject({ tillers: 7, coursers: 1 });
+    const tallow = freshRun({ meta, house: 'tallow', seed: 2 });
+    expect(getBriefing(tallow.run, meta, 'start').tillers).toBe(8);
+    tallow.run.boons = ['hearthborn'];
+    tallow.run.extraTillers = 1;
+    meta.unlocks.push('hearth_lore');
+    expect(getBriefing(tallow.run, meta, 'start').tillers).toBe(12);
+  });
+
+  it('first march: the start briefing of the first 3 runs shows the wave easing line', () => {
+    const { run, meta } = freshRun();
+    expect(getBriefing(run, meta, 'start').assists).toEqual(['First march: the Thornwake wakes slowly (waves −15%).']);
+    run.profileRunIndex = 2;
+    expect(getBriefing(run, meta, 'start').assists).toHaveLength(1);
+    run.profileRunIndex = 3;
+    expect(getBriefing(run, meta, 'start').assists).toEqual([]);
+    run.profileRunIndex = 0;
+    const { node } = forceNode(run, meta, 'battle');
+    expect(getBriefing(run, meta, node.id).assists).toEqual([]);
+  });
 });
+
+describe('nodeRewardText (map tooltip and briefing)', () => {
+  beforeEach(() => useMemoryStorage());
+
+  it('Elites pay a Rare+ Boon, a Draft and Crowns; the boss ends the march; text matches the briefing', () => {
+    const { run, meta } = freshRun();
+    const { node } = forceNode(run, meta, 'elite', { battle: { depth: 3, modifiers: ['fortified_nests'] } });
+    const elite = nodeRewardText(run, node);
+    expect(elite).toMatch(new RegExp(`Rare or better Boon .* then a Draft\\. \\+${CROWNS.eliteBonus} Crowns`));
+    expect(elite).toBe(getBriefing(run, meta, node.id).rewardDesc);
+
+    const boss = run.map.nodes[run.map.bossId];
+    expect(nodeRewardText(run, boss)).toBe('Slay the Regent and end the march.');
+    expect(nodeRewardText(run, boss)).not.toMatch(/Boon/);
+
+    const start = run.map.nodes[run.map.startId];
+    expect(nodeRewardText(run, start)).toMatch(/Draft: pick 1 of 3 new unit types/);
+    const camp = Object.values(run.map.nodes).find((n) => !n.battle)!;
+    expect(nodeRewardText(run, camp)).toBe('');
+  });
+});
+

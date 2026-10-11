@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { spawnBuilding, spawnUnit } from '../../src/sim/entities';
 import {
   buildOptions,
+  canPlaceBuilding,
   commandCard,
   idleTillers,
   isEntityVisible,
@@ -14,9 +15,9 @@ import {
   unitsInRect,
 } from '../../src/sim/queries';
 import { drainEvents, issueCommand } from '../../src/sim/world';
-import type { GameEvent, World } from '../../src/sim/types';
+import type { Building, GameEvent, PlayerBuildingId, World } from '../../src/sim/types';
 import { ENEMY, PLAYER } from '../../src/sim/types';
-import { clearUnits, makeWorld, step, units } from './helpers';
+import { clearUnits, makeWorld, step, stepUntil, units } from './helpers';
 
 function cmdEvents(w: World): Extract<GameEvent, { t: 'command' }>[] {
   return drainEvents(w).filter((e): e is Extract<GameEvent, { t: 'command' }> => e.t === 'command');
@@ -125,6 +126,94 @@ describe('smart command (RMB)', () => {
     expect(isEntityVisible(w, hidden)).toBe(false);
     expect(pickEntityAt(w, 44, 44)).toBeNull();
     expect(pickEntityAt(w, foe.x, foe.y)).toBe(foe);
+  });
+});
+
+describe('Shift-build queues per Tiller (GDD §O)', () => {
+  /** A free site for `type` near (x, y), skipping `avoid` tiles. */
+  function site(w: World, type: PlayerBuildingId, x: number, y: number, avoid: { tx: number; ty: number }[] = []): { tx: number; ty: number } {
+    for (let r = 0; r < 12; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const tx = x + dx;
+          const ty = y + dy;
+          if (avoid.some((a) => Math.abs(a.tx - tx) < 4 && Math.abs(a.ty - ty) < 4)) continue;
+          if (canPlaceBuilding(w, type, tx, ty).ok) return { tx, ty };
+        }
+      }
+    }
+    throw new Error('no site');
+  }
+  function gatheringTiller(w: World) {
+    w.debug.revealAll = true;
+    const t = units(w, PLAYER, 'tiller')[0];
+    const th = w.resources.find((r) => r.type === 'thicket')!;
+    expect(issueCommand(w, { type: 'gather', unitIds: [t.id], target: { kind: 'node', id: th.id } }).ok).toBe(true);
+    step(w, 3);
+    expect(t.order.type).toBe('gather');
+    return { t, th };
+  }
+  const newest = (w: World, type: string): Building => w.buildings.filter((b) => b.type === type).at(-1)!;
+
+  it('a gathering Tiller given a queued build starts it now, keeps its job and resumes gathering', () => {
+    const w = makeWorld();
+    const { t, th } = gatheringTiller(w);
+    const s1 = site(w, 'cottage', 14, 3);
+    expect(issueCommand(w, { type: 'build', unitIds: [t.id], building: 'cottage', tx: s1.tx, ty: s1.ty, queue: true }).ok).toBe(true);
+    const c = newest(w, 'cottage');
+    expect(t.order).toMatchObject({ type: 'build', buildingId: c.id });
+    expect(t.queue).toHaveLength(0);
+    expect(t.job).toEqual({ kind: 'node', id: th.id });
+    expect(stepUntil(w, () => c.built, 90)).toBeLessThan(90);
+    step(w, 0.5);
+    expect(t.order).toMatchObject({ type: 'gather', target: { kind: 'node', id: th.id } });
+  });
+
+  it('a Tiller already building keeps building A, queues B and builds B after A', () => {
+    const w = makeWorld();
+    const { t, th } = gatheringTiller(w);
+    const s1 = site(w, 'cottage', 14, 3);
+    issueCommand(w, { type: 'build', unitIds: [t.id], building: 'cottage', tx: s1.tx, ty: s1.ty, queue: true });
+    const a = newest(w, 'cottage');
+    const s2 = site(w, 'cottage', 14, 3, [s1]);
+    expect(issueCommand(w, { type: 'build', unitIds: [t.id], building: 'cottage', tx: s2.tx, ty: s2.ty, queue: true }).ok).toBe(true);
+    const b = newest(w, 'cottage');
+    expect(b.id).not.toBe(a.id);
+    expect(t.order).toMatchObject({ type: 'build', buildingId: a.id });
+    expect(t.queue).toEqual([{ type: 'build', buildingId: b.id }]);
+    expect(stepUntil(w, () => a.built, 90)).toBeLessThan(90);
+    step(w, 0.2);
+    expect(t.order).toMatchObject({ type: 'build', buildingId: b.id });
+    expect(b.built).toBe(false);
+    expect(stepUntil(w, () => b.built, 90)).toBeLessThan(90);
+    step(w, 0.5);
+    expect(t.order).toMatchObject({ type: 'gather', target: { kind: 'node', id: th.id } });
+  });
+
+  it('a build without queue replaces the current order (and clears the queue)', () => {
+    const w = makeWorld();
+    const { t } = gatheringTiller(w);
+    const s1 = site(w, 'cottage', 14, 3);
+    issueCommand(w, { type: 'build', unitIds: [t.id], building: 'cottage', tx: s1.tx, ty: s1.ty });
+    const a = newest(w, 'cottage');
+    expect(t.order).toMatchObject({ type: 'build', buildingId: a.id });
+    issueCommand(w, { type: 'move', unitIds: [t.id], x: 20, y: 20, queue: true });
+    expect(t.queue).toHaveLength(1);
+    const s2 = site(w, 'cottage', 14, 3, [s1]);
+    issueCommand(w, { type: 'build', unitIds: [t.id], building: 'cottage', tx: s2.tx, ty: s2.ty });
+    const b = newest(w, 'cottage');
+    expect(t.order).toMatchObject({ type: 'build', buildingId: b.id });
+    expect(t.queue).toHaveLength(0);
+  });
+
+  it('Shift-repair follows the same rule', () => {
+    const w = makeWorld();
+    const { t, th } = gatheringTiller(w);
+    const h = w.buildings.find((b) => b.type === 'hearth')!;
+    h.hp -= 50;
+    expect(issueCommand(w, { type: 'repair', unitIds: [t.id], targetId: h.id, queue: true }).ok).toBe(true);
+    expect(t.order).toMatchObject({ type: 'build', buildingId: h.id });
+    expect(t.job).toEqual({ kind: 'node', id: th.id });
   });
 });
 

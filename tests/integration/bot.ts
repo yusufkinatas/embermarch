@@ -567,7 +567,8 @@ export class Bot {
     for (const b of this.ownBuildings()) {
       if (b.built) continue;
       const working = this.tillers().some((u) => u.order.type === 'build' && u.order.buildingId === b.id);
-      if (!working) this.issue({ type: 'repair', unitIds: this.builders(1, b).map((u) => u.id), targetId: b.id }, '');
+      const bs = working ? [] : this.builders(1, b);
+      if (bs.length) this.issue({ type: 'repair', unitIds: bs.map((u) => u.id), targetId: b.id }, '');
     }
 
     // Timber Storehouse at the reserved forest-edge site.
@@ -697,6 +698,9 @@ export class Bot {
     return this.visibleEnemies().filter((e) => {
       const standing = !!e.ai && (e.ai.role === 'garrison' || e.ai.role === 'picket' || e.ai.role === 'lurker' || e.ai.role === 'beacon_guard');
       if (standing) return blds.some((b) => dist(e, b) <= Math.max(b.w, b.h) / 2 + 2);
+      // A wave still mustering stands at its Nest (Holdfast Nests are only 17-23 tiles out): wait
+      // for it at home instead of marching into the Nest's spire and garrison.
+      if (e.ai?.state === 'muster') return dist(e, h) <= 10;
       if (dist(e, h) <= 15) return true;
       return blds.some((b) => dist(e, b) <= 8) || ts.some((t) => dist(e, t) <= 5);
     });

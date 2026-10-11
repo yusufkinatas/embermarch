@@ -13,6 +13,7 @@ import { fmtTime, h, roman } from '../dom';
 import { DOCTRINE_GLYPH, MODIFIER_GLYPH, MODIFIER_KIND_COLOR, OBJECTIVE_GLYPH, REWARD_GLYPH, divider, glyph } from '../ui/glyphs';
 import { runHeader } from '../ui/header';
 import { portrait, unitChip } from '../ui/portraits';
+import { beginBattle } from '../logic/flow';
 
 const VANGUARD_ICON: Record<VanguardId, 'muster_hall' | 'bowyard' | 'storehouse'> = {
   muster_hall: 'muster_hall',
@@ -79,7 +80,21 @@ export function mountBriefing(app: AppCtx, b: Briefing): ScreenHandle {
   );
 
   const mods = h('div', { class: 'brief-mods' });
-  if (b.modifiers.length === 0) mods.appendChild(h('div', { class: 'muted small' }, 'No modifiers. The road is as it seems.'));
+  const assists = b.assists ?? [];
+  if (b.modifiers.length === 0 && assists.length === 0) mods.appendChild(h('div', { class: 'muted small' }, 'No modifiers. The road is as it seems.'));
+  for (const line of assists) {
+    // "First march: the Thornwake wakes slowly (waves −15%)." → name + sentence.
+    const [name, ...rest] = line.split(': ');
+    const desc = rest.join(': ');
+    mods.appendChild(
+      h(
+        'div',
+        { class: 'mod-row assist', style: `--mk:${MODIFIER_KIND_COLOR.positive}` },
+        h('span', { class: 'mod-icon' }, glyph('sun')),
+        h('div', { class: 'col', style: 'gap:.1rem' }, h('div', { class: 'mod-name' }, desc ? name : 'Easing'), h('div', { class: 'small' }, desc ? desc.charAt(0).toUpperCase() + desc.slice(1) : line)),
+      ),
+    );
+  }
   for (const m of b.modifiers) {
     const def = MODIFIERS[m.id];
     const color = MODIFIER_KIND_COLOR[def?.kind ?? m.kind] ?? '#a8987a';
@@ -112,10 +127,12 @@ export function mountBriefing(app: AppCtx, b: Briefing): ScreenHandle {
 
   // --- right: the host
   const host = h('div', { class: 'brief-host' });
+  const tillers = b.tillers ?? START.tillers;
+  const coursers = b.coursers ?? START.coursers;
   const base = h(
     'div',
     { class: 'host-base small muted' },
-    `The Hearth, ${START.tillers} Tillers, ${START.coursers} Courser and the Warden take the field.`,
+    `The Hearth, ${tillers} Tillers, ${coursers} Courser${coursers === 1 ? '' : 's'} and the Warden take the field.`,
   );
   host.appendChild(base);
   const carried = h('div', { class: 'host-units' });
@@ -164,7 +181,8 @@ export function mountBriefing(app: AppCtx, b: Briefing): ScreenHandle {
         if (starting || !app.run) return;
         starting = true;
         app.click();
-        const setup = app.guard('startBattle', () => app.api.startBattle(app.run!, app.meta, vanguard));
+        // The route is committed here, not when the briefing opened.
+        const setup = app.guard('startBattle', () => beginBattle(app.api, app.run!, app.meta, b.nodeId, vanguard));
         if (!setup) {
           starting = false;
           return;

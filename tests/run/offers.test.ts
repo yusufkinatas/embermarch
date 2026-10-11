@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { Rng } from '../../src/core/rng';
 import { BOONS, BOON_IDS, DRAFT_IDS } from '../../src/data';
 import type { Rarity } from '../../src/data';
-import { chooseReward, currentReward, finishBattle } from '../../src/run';
+import { chooseCamp, chooseEventOption, chooseReward, currentReward, enterNode, finishBattle, leaveNode, newRun, reachableNodes, startBattle } from '../../src/run';
 import { boonPool, eligibleDrafts, pickBoon, rollBoonOffer, rollRarity } from '../../src/run/offers';
-import type { RewardStep } from '../../src/run/types';
+import type { MetaSave, RewardStep, RunState } from '../../src/run/types';
 import type { BoonId } from '../../src/sim/types';
 import { forceNode, freshRun, metaWith, mkResult, units, useMemoryStorage } from './helpers';
 
@@ -73,8 +73,8 @@ describe('Boon offers (§M)', () => {
     expect(pickBoon(rng, run, ALL_CODEX, 'C')).toBeNull();
   });
 
-  it('weights synergy ×2 (owned Boons, House and drafted unit tags)', () => {
-    const { run } = freshRun({ house: 'ardent' }); // Warden tag
+  it('weights synergy ×2 (owned Boons, drafted unit tags, House tags shared by 3+ eligible Boons)', () => {
+    const { run } = freshRun({ house: 'ardent' }); // Warden tag: only 2 base Boons carry it
     run.boons = ['pike_discipline']; // Pike tag
     run.drafts = ['draft_siegecraft']; // Siege tag
     const rng = new Rng(5);
@@ -83,10 +83,20 @@ describe('Boon offers (§M)', () => {
       const id = pickBoon(rng, run, metaWith(), 'C')!;
       counts[id] = (counts[id] ?? 0) + 1;
     }
-    // Commons in the base pool, minus owned pike_discipline: 8. Synergy: second_wind (Warden).
+    // Commons in the base pool, minus owned pike_discipline: 8. Ardent's Warden tag has only
+    // Second Wind and Flame Banner behind it, so it adds no weight: Second Wind is a plain Common.
     const ratio = counts.second_wind / counts.laden_packs;
-    expect(ratio).toBeGreaterThan(1.7);
-    expect(ratio).toBeLessThan(2.3);
+    expect(ratio).toBeGreaterThan(0.85);
+    expect(ratio).toBeLessThan(1.15);
+    // Tallow's Econ tag is shared by many eligible Boons, so the House doubles them.
+    const tallow = freshRun({ house: 'tallow', seed: 2 }).run;
+    const econ: Record<string, number> = {};
+    for (let i = 0; i < 30000; i++) {
+      const id = pickBoon(rng, tallow, metaWith(), 'C')!;
+      econ[id] = (econ[id] ?? 0) + 1;
+    }
+    expect(econ.laden_packs / econ.yew_staves).toBeGreaterThan(1.7);
+    expect(econ.laden_packs / econ.yew_staves).toBeLessThan(2.3);
     const rareCounts: Record<string, number> = {};
     for (let i = 0; i < 30000; i++) {
       const id = pickBoon(rng, run, metaWith(), 'R')!;
@@ -235,5 +245,60 @@ describe('reward queue per node type (§M)', () => {
       const second = boonOptions(chooseReward(run, meta, pickIdx));
       expect(second).not.toContain(picked);
     }
+  });
+});
+
+/**
+ * Walk a run through the public API (every battle won, routes varied by seed) until its first
+ * post-battle reward Boon offer, the one that carries the Rule guarantee.
+ */
+function firstRewardOffer(run: RunState, meta: MetaSave, seed: number): BoonId[] | null {
+  for (let step = 0; step < 14 && !run.over; step++) {
+    for (let guard = 0; guard < 10; guard++) {
+      const r = currentReward(run);
+      if (!r) break;
+      if (r.kind === 'boon' && r.spec?.source === 'reward') return [...r.options];
+      if (r.kind === 'retinue') chooseReward(run, meta, 0, []);
+      else chooseReward(run, meta, r.options.length ? 0 : 'skip');
+    }
+    const options = reachableNodes(run);
+    const node = options[(seed * 31 + step * 17) % options.length];
+    const entry = enterNode(run, meta, node.id);
+    if (entry.screen === 'briefing') {
+      startBattle(run, meta, 'muster_hall');
+      finishBattle(run, meta, mkResult({ objective: node.battle!.objective, depth: node.battle!.depth }));
+    } else if (entry.screen === 'event') {
+      chooseEventOption(run, meta, entry.event.choices.find((c) => c.enabled)!.id);
+    } else if (entry.screen === 'camp') {
+      chooseCamp(run, meta, 'rest');
+    } else {
+      leaveNode(run);
+    }
+  }
+  return null;
+}
+
+describe('first reward offer skew (§M)', () => {
+  beforeEach(() => useMemoryStorage());
+
+  it('over 2000 runs: always a Rule Boon, a Mythic in at most 15% of runs', () => {
+    let runs = 0;
+    let withMythic = 0;
+    let swapMythicRule = 0;
+    for (let seed = 1; seed <= 2000; seed++) {
+      const meta = metaWith();
+      const run = newRun(meta, { house: 'ardent', tier: 0, seed: seed * 7919 });
+      const offer = firstRewardOffer(run, meta, seed);
+      if (!offer) continue;
+      runs++;
+      expect(offer.some((id) => BOONS[id].kind === 'rule')).toBe(true);
+      if (offer.some((id) => rarityOf(id) === 'M')) withMythic++;
+      // The guaranteed last card is a Common or Rare Rule while one is eligible.
+      const last = offer[offer.length - 1];
+      if (BOONS[last].kind !== 'rule' || rarityOf(last) === 'M') swapMythicRule++;
+    }
+    expect(runs).toBeGreaterThan(1900);
+    expect(swapMythicRule).toBe(0);
+    expect(withMythic / runs).toBeLessThanOrEqual(0.15);
   });
 });

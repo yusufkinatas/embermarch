@@ -42,6 +42,17 @@ const LAST_BATTLE_COL = 6;
 const BOSS_COL = RUN_MAP.columns; // 8
 const CENTER_LANE = (RUN_MAP.lanes - 1) / 2; // 1.5
 
+/**
+ * Route-choice rules on top of §B step 4 (run lane, local so RUN_MAP stays the sim lane's).
+ * A decision is a node on a path (start..col 6) with 2+ next nodes. The walker layout must give
+ * every map a mean of at least 3.6 decisions per start→boss path, and no path may run through
+ * more than 2 single-exit nodes in a row among cols 2-6. About 4 in 5 walker layouts fail this,
+ * so layouts get a larger try budget than RUN_MAP.layoutTries.
+ */
+const LAYOUT_TRIES = 300;
+const MIN_MEAN_DECISIONS = 3.6;
+const MAX_SINGLE_EXIT_RUN = 2;
+
 export function nodeId(col: number, lane: number): string {
   return `c${col}l${lane}`;
 }
@@ -97,13 +108,76 @@ function walkLayout(rng: Rng): Layout {
   return layout;
 }
 
+/** Out-degree per node of a layout (key "col:lane"), columns FIRST_MID..LAST_MID. */
+function layoutOutDegree(layout: Layout): Map<string, number> {
+  const deg = new Map<string, number>();
+  for (let c = FIRST_MID; c < LAST_MID; c++) {
+    for (const key of layout.edges.get(c)!) {
+      const a = key.split('>')[0];
+      deg.set(`${c}:${a}`, (deg.get(`${c}:${a}`) ?? 0) + 1);
+    }
+  }
+  for (const l of layout.lanes.get(LAST_MID)!) deg.set(`${LAST_MID}:${l}`, 1); // → boss
+  return deg;
+}
+
+/**
+ * Route choice of a layout: the mean number of decisions per start→boss path (a decision is a
+ * node in cols 1-6 with 2+ next; the start always is one) and the longest run of single-exit
+ * nodes among cols 2-6 on any path.
+ */
+function layoutRouteStats(layout: Layout): { meanDecisions: number; maxSingleRun: number } {
+  const deg = layoutOutDegree(layout);
+  // Forward DP over the DAG: paths reaching a node, decisions summed over those paths (excluding
+  // the node itself), and the longest single-exit run ending at the node.
+  const paths = new Map<string, number>();
+  const decs = new Map<string, number>();
+  const run = new Map<string, number>();
+  const startDecision = layout.lanes.get(FIRST_MID)!.size >= 2 ? 1 : 0;
+  let maxSingleRun = 0;
+  for (const l of layout.lanes.get(FIRST_MID)!) {
+    paths.set(`${FIRST_MID}:${l}`, 1);
+    decs.set(`${FIRST_MID}:${l}`, startDecision);
+  }
+  for (let c = FIRST_MID; c <= LAST_MID; c++) {
+    for (const l of layout.lanes.get(c)!) {
+      const k = `${c}:${l}`;
+      const single = (deg.get(k) ?? 0) === 1;
+      const r = c <= LAST_BATTLE_COL && single ? (run.get(k) ?? 0) + 1 : 0;
+      run.set(k, r);
+      maxSingleRun = Math.max(maxSingleRun, r);
+      if (c === LAST_MID) continue;
+      const p = paths.get(k) ?? 0;
+      const d = (decs.get(k) ?? 0) + (single ? 0 : p);
+      for (const key of layout.edges.get(c)!) {
+        const [a, b] = key.split('>').map(Number);
+        if (a !== l) continue;
+        const nk = `${c + 1}:${b}`;
+        paths.set(nk, (paths.get(nk) ?? 0) + p);
+        decs.set(nk, (decs.get(nk) ?? 0) + d);
+        // run.get(nk) holds the longest run among predecessors until nk itself is visited.
+        if (c + 1 <= LAST_BATTLE_COL) run.set(nk, Math.max(run.get(nk) ?? 0, r));
+      }
+    }
+  }
+  let totalPaths = 0;
+  let totalDecs = 0;
+  for (const l of layout.lanes.get(LAST_MID)!) {
+    totalPaths += paths.get(`${LAST_MID}:${l}`) ?? 0;
+    totalDecs += decs.get(`${LAST_MID}:${l}`) ?? 0;
+  }
+  return { meanDecisions: totalPaths > 0 ? totalDecs / totalPaths : 0, maxSingleRun };
+}
+
 function layoutAccepted(layout: Layout): boolean {
   let total = 0;
   for (const set of layout.lanes.values()) {
     if (set.size < RUN_MAP.minPerColumn) return false;
     total += set.size;
   }
-  return total >= RUN_MAP.midNodesMin && total <= RUN_MAP.midNodesMax;
+  if (total < RUN_MAP.midNodesMin || total > RUN_MAP.midNodesMax) return false;
+  const route = layoutRouteStats(layout);
+  return route.meanDecisions >= MIN_MEAN_DECISIONS && route.maxSingleRun <= MAX_SINGLE_EXIT_RUN;
 }
 
 /** §B step 4 fallback: 3 lanes, each with a straight edge, plus one diagonal per column pair. */
@@ -278,6 +352,21 @@ export function runMapViolations(map: RunMap): string[] {
   return v;
 }
 
+/**
+ * True if no node is forced into an Elite: every node in cols 1-5 whose next includes an Elite
+ * also has a non-Elite next. With the col-6 → col-7 edges never reaching an Elite, this means an
+ * Elite can be sidestepped from every non-Elite node, one step at a time.
+ */
+export function elitesAvoidable(map: RunMap): boolean {
+  for (let c = 1; c < LAST_BATTLE_COL; c++) {
+    for (const id of map.columns[c - 1]) {
+      const next = map.nodes[id].next.map((nx) => map.nodes[nx].type);
+      if (next.includes('elite') && next.every((t) => t === 'elite')) return false;
+    }
+  }
+  return true;
+}
+
 /** Type-only subset of the rules (used while rolling types; battle info is not rolled yet). */
 function typesValid(map: RunMap): boolean {
   const cols = map.columns;
@@ -299,7 +388,7 @@ function typesValid(map: RunMap): boolean {
   if (!c7.includes('camp') || !c7.includes('peddler')) return false;
   const range = pathCombatRange(map);
   if (range.min < RUN_MAP.pathCombatMin || range.max > RUN_MAP.pathCombatMax) return false;
-  return hasEliteFreePath(map);
+  return hasEliteFreePath(map) && elitesAvoidable(map);
 }
 
 /** §B step 5 fallback: cols 2/4/6 Battles (one col-4 Elite), cols 3/5 alternate Event, Peddler, Camp. */
@@ -308,13 +397,18 @@ function fallbackTypes(map: RunMap): void {
   set(2, () => 'battle');
   // Camp only appears from column 4 on, so column 3 alternates Event and Peddler.
   set(3, (i) => (['event', 'peddler'] as const)[i % 2]);
-  set(4, (i) => (i === 0 ? 'elite' : 'battle'));
+  // The col-4 Elite goes where every col-3 node leading to it has another exit, when possible.
+  const col4 = map.columns[3];
+  const sidestep = col4.findIndex((id) => map.columns[2].every((p) => !map.nodes[p].next.includes(id) || map.nodes[p].next.length > 1));
+  const eliteAt = Math.max(0, sidestep);
+  set(4, (i) => (i === eliteAt ? 'elite' : 'battle'));
   set(5, (i) => (['event', 'peddler', 'camp'] as const)[i % 3]);
   set(6, () => 'battle');
   set(7, (i) => (['camp', 'peddler'] as const)[i % 2]);
 }
 
-function assignTypes(map: RunMap, rng: Rng): boolean {
+/** Up to RUN_MAP.typeAttempts weighted rolls; true once one satisfies typesValid. */
+function rollTypes(map: RunMap, rng: Rng): boolean {
   for (let attempt = 0; attempt < RUN_MAP.typeAttempts; attempt++) {
     for (let c = FIRST_MID; c <= LAST_MID; c++) {
       const w = RUN_MAP.weights[c] as Partial<Record<NodeType, number>>;
@@ -323,6 +417,11 @@ function assignTypes(map: RunMap, rng: Rng): boolean {
     }
     if (typesValid(map)) return true;
   }
+  return false;
+}
+
+function assignTypes(map: RunMap, rng: Rng): boolean {
+  if (rollTypes(map, rng)) return true;
   fallbackTypes(map);
   return false;
 }
@@ -405,9 +504,9 @@ function rollBattleInfo(rng: Rng, runSeed: number, node: RunNode, beacons: boole
 
 export interface GeneratedRunMap {
   map: RunMap;
-  /** Walker layout failed 50 times and the 3-lane template was used. */
+  /** No walker layout passed the §B and route-choice checks in LAYOUT_TRIES; the 3-lane template was used. */
   layoutFallback: boolean;
-  /** Type assignment failed 200 times and the fixed pattern was used. */
+  /** No accepted layout could be typed in RUN_MAP.typeAttempts rolls; the fixed pattern was used. */
   typeFallback: boolean;
 }
 
@@ -417,19 +516,39 @@ export function generateRunMap(
   opts: { beacons?: boolean; /** Tests: force the §B fallbacks. */ forceFallback?: { layout?: boolean; types?: boolean } } = {},
 ): GeneratedRunMap {
   const rng = new Rng(seed >>> 0).fork('runmap');
-  let layout: Layout | null = null;
-  for (let t = 0; t < RUN_MAP.layoutTries && !layout && !opts.forceFallback?.layout; t++) {
+  // A walker layout counts only once the type roll also succeeds on it: richer layouts have more
+  // paths, so some cannot meet the path combat and Elite rules. Those are rerolled like a
+  // rejected layout instead of falling back to the fixed type pattern.
+  let map: RunMap | null = null;
+  let untyped: RunMap | null = null;
+  let typeFallback = false;
+  for (let t = 0; t < LAYOUT_TRIES && !map && !opts.forceFallback?.layout; t++) {
     const l = walkLayout(rng);
-    if (layoutAccepted(l)) layout = l;
+    if (!layoutAccepted(l)) continue;
+    const m = buildMap(l);
+    if (opts.forceFallback?.types) {
+      fallbackTypes(m);
+      typeFallback = true;
+      map = m;
+    } else if (rollTypes(m, rng)) {
+      map = m;
+    } else {
+      untyped = m;
+    }
   }
-  const layoutFallback = layout === null;
-  const map = buildMap(layout ?? fallbackLayout());
-  let typeFallback: boolean;
-  if (opts.forceFallback?.types) {
+  const layoutFallback = map === null && untyped === null;
+  if (!map && untyped) {
+    map = untyped;
     fallbackTypes(map);
     typeFallback = true;
-  } else {
-    typeFallback = !assignTypes(map, rng);
+  } else if (!map) {
+    map = buildMap(fallbackLayout());
+    if (opts.forceFallback?.types) {
+      fallbackTypes(map);
+      typeFallback = true;
+    } else {
+      typeFallback = !assignTypes(map, rng);
+    }
   }
   const beacons = opts.beacons ?? BEACONS_ENABLED;
   for (const col of map.columns) {

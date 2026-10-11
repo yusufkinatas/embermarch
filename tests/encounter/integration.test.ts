@@ -6,9 +6,11 @@ import { firstWaveLaunch, nestFactor, regentHp, waveValue } from '../../src/data
 import { UNITS } from '../../src/data/units';
 import { debugForceWave, getEncounterResult, getEncounterView } from '../../src/sim/encounter';
 import { getState } from '../../src/sim/encounter/state';
+import { computeDamagePacket } from '../../src/sim/combat';
 import { killEntity, spawnUnit } from '../../src/sim/entities';
+import { spawnProjectile } from '../../src/sim/projectiles';
 import { buildBattleResult, stepWorld } from '../../src/sim/world';
-import { PLAYER, type Unit, type World } from '../../src/sim/types';
+import { ENEMY, PLAYER, type Building, type Unit, type World } from '../../src/sim/types';
 import { enemies, hearthCenter, realWorld, runTo } from './helpers';
 
 const value = (us: Unit[]) => us.reduce((s, u) => s + (UNITS[u.type].value ?? 0), 0);
@@ -226,4 +228,75 @@ describe('stability and performance', () => {
       console.log(`${objective}: ${ticks} ticks, avg ${(total / ticks).toFixed(3)} ms, worst ${worst.toFixed(1)} ms, max enemies ${maxTotal}, max wave pool ${maxWave}, outcome ${w.outcome} @${w.time.toFixed(0)}s`);
     });
   }
+});
+
+describe('same-tick outcome: victory is checked before defeat', () => {
+  /** A projectile from `src` already touching `target`, so it lands in the next tick's step 7. */
+  function lethalShot(w: World, kind: 'arrow' | 'spine', src: Unit, target: Building): void {
+    const p = spawnProjectile(w, kind, src, target, target.x, target.y, computeDamagePacket(w, src, target));
+    p.x = target.tx - 0.05;
+    p.y = target.y;
+  }
+
+  for (const spineFirst of [true, false]) {
+    it(`Raze: the last Nest and the Hearth fall in the same tick → victory (${spineFirst ? 'Hearth hit first' : 'Nest hit first'})`, () => {
+      const w = realWorld({ objective: 'raze', depth: 1, seed: 7 });
+      runTo(w, 1);
+      const nests = nestsOf(w);
+      expect(nests.length).toBeGreaterThanOrEqual(2);
+      for (const n of nests.slice(1)) killEntity(w, n, 0);
+      stepWorld(w);
+      expect(w.outcome).toBe('ongoing');
+      const last = nests[0];
+      const h = w.entities.get(w.hearthId) as Building;
+      last.hp = 1;
+      h.hp = 1;
+      const bow = spawnUnit(w, 'bowman', PLAYER, last.tx - 3, last.y);
+      const caster = spawnUnit(w, 'spinecaster', ENEMY, h.tx - 3, h.y);
+      if (spineFirst) lethalShot(w, 'spine', caster, h);
+      lethalShot(w, 'arrow', bow, last);
+      if (!spineFirst) lethalShot(w, 'spine', caster, h);
+      stepWorld(w);
+      stepWorld(w);
+      expect(last.alive).toBe(false);
+      expect(h.alive).toBe(false);
+      expect(w.outcome).toBe('victory');
+      expect(buildBattleResult(w, 'victory').nestsDestroyed).toBe(nests.length);
+    });
+  }
+
+  it('Raze: the Hearth falling while a Nest still stands is a defeat', () => {
+    const w = realWorld({ objective: 'raze', depth: 1, seed: 7 });
+    runTo(w, 1);
+    const h = w.entities.get(w.hearthId) as Building;
+    h.hp = 1;
+    lethalShot(w, 'spine', spawnUnit(w, 'spinecaster', ENEMY, h.tx - 3, h.y), h);
+    stepWorld(w);
+    stepWorld(w);
+    expect(h.alive).toBe(false);
+    expect(nestsOf(w).length).toBeGreaterThan(0);
+    expect(w.outcome).toBe('defeat');
+  });
+
+  it('Boss: the Regent slain earlier in the tick means no Last Stand is spent', () => {
+    const w = realWorld({ objective: 'boss', seed: 7 });
+    runTo(w, 1);
+    const regent = w.entities.get(getState(w)!.boss!.id) as Unit;
+    regent.untargetable = false;
+    regent.invulnerable = false;
+    regent.hp = 1;
+    const h = w.entities.get(w.hearthId) as Building;
+    h.hp = 1;
+    const bow = spawnUnit(w, 'bowman', PLAYER, regent.x - 3, regent.y);
+    const caster = spawnUnit(w, 'spinecaster', ENEMY, h.tx - 3, h.y);
+    const arrow = spawnProjectile(w, 'arrow', bow, regent, regent.x, regent.y, computeDamagePacket(w, bow, regent));
+    arrow.x = regent.x - regent.radius - 0.05;
+    arrow.y = regent.y;
+    lethalShot(w, 'spine', caster, h);
+    stepWorld(w);
+    stepWorld(w);
+    expect(regent.alive).toBe(false);
+    expect(w.lastStandsUsed).toBe(0);
+    expect(w.outcome).toBe('victory');
+  });
 });

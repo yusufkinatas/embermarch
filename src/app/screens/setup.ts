@@ -44,24 +44,29 @@ export function mountSetup(app: AppCtx): ScreenHandle {
       h('div', { class: 'hc-name' }, def.name),
       h('div', { class: 'hc-motto' }, `“${def.motto}”`),
       divider('narrow'),
-      h(
-        'div',
-        { class: 'hc-section' },
-        h('div', { class: 'label-caps' }, h('span', { class: 'kbd' }, 'Q'), ' Warden ability'),
-        h('div', { class: 'hc-ability' }, def.abilityName, h('span', { class: 'hc-cd' }, `${def.abilityCooldown} s`)),
-        h('div', { class: 'hc-desc' }, def.abilityDesc),
-      ),
-      h('div', { class: 'hc-section' }, h('div', { class: 'label-caps' }, 'Passives'), h('div', { class: 'hc-desc' }, def.passiveDesc)),
+      // A sealed House shows how to unlock it in place of its ability and passives.
+      ...(locked
+        ? [
+            h(
+              'div',
+              { class: 'hc-lock' },
+              glyph('lock'),
+              h('div', null, 'Sealed'),
+              h('div', { class: 'tiny' }, unlock ? `Raise “${unlock.name}” in the Hall of Banners · ${unlock.cost} Renown` : 'Locked'),
+              unlock && app.meta.renown >= unlock.cost ? h('div', { class: 'tiny good' }, 'You hold enough Renown to raise it now.') : null,
+            ),
+          ]
+        : [
+            h(
+              'div',
+              { class: 'hc-section' },
+              h('div', { class: 'label-caps' }, h('span', { class: 'kbd' }, 'Q'), ' Warden ability'),
+              h('div', { class: 'hc-ability' }, def.abilityName, h('span', { class: 'hc-cd' }, `${def.abilityCooldown} s`)),
+              h('div', { class: 'hc-desc' }, def.abilityDesc),
+            ),
+            h('div', { class: 'hc-section' }, h('div', { class: 'label-caps' }, 'Passives'), h('div', { class: 'hc-desc' }, def.passiveDesc)),
+          ]),
       h('div', { class: 'hc-tags' }, def.tags.map((t) => tagChip(t))),
-      locked
-        ? h(
-            'div',
-            { class: 'hc-lock' },
-            glyph('lock'),
-            h('div', null, 'Sealed'),
-            h('div', { class: 'tiny' }, unlock ? `Raise “${unlock.name}” in the Hall of Banners · ${unlock.cost} Renown` : 'Locked'),
-          )
-        : null,
     );
     if (!locked) {
       const pick = (): void => {

@@ -104,7 +104,8 @@ describe('a full run with real battles', () => {
           if (d === 'draft_shieldwall') expect(setup.unlockedUnits).toContain('oathshield');
           if (d === 'draft_siegecraft') expect(setup.unlockedBuildings).toContain('siegeyard');
         }
-        const { world, result, carriedAtStart } = playBattle(setup, setup.isBoss ? 540 : 660);
+        // The boss runs past Wrath (8:00) so the Regent's march usually settles it for real.
+        const { world, result, carriedAtStart } = playBattle(setup, setup.isBoss ? 780 : 660);
         // Every carried unit spawned on the field with its type and rank.
         const want = [...setup.retinue, ...setup.sellswords].map((c) => `${c.type}:${c.rank}`).sort();
         expect(carriedAtStart.map((c) => `${c.type}:${c.rank}`).sort()).toEqual(want);
@@ -114,7 +115,11 @@ describe('a full run with real battles', () => {
         const crownsBefore = run.crowns;
         const post = finishBattle(run, meta, result);
         expect(run.battleInProgress).toBe(false);
-        expect(run.nodesDone).toContain(node.id);
+        // A boss loss with Resolve left (only possible here when the time limit cut the battle off)
+        // restarts the boss at −1 Resolve (§B Autosave rule), so its node stays open.
+        const bossRetry = setup.isBoss && result.outcome !== 'victory' && !post.runOver;
+        if (bossRetry) expect(run.nodesDone).not.toContain(node.id);
+        else expect(run.nodesDone).toContain(node.id);
         expect(post.outcome).toBe(result.outcome);
         expect(run.crowns - crownsBefore).toBe(post.crownsTotal);
         if (result.outcome === 'victory') expect(post.crownsTotal).toBeGreaterThan(0);

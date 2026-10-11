@@ -90,7 +90,7 @@ export function stepProjectiles(world: World): void {
           p.y += (t.y - p.y) * k;
           p.alive = false;
           settle(world, p, t.id);
-          applyPacket(world, p.sourceId, t, p.packet);
+          applyPacket(world, p.sourceId, t, p.packet, p.owner);
           continue;
         }
       } else {

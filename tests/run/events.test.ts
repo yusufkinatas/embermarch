@@ -309,3 +309,38 @@ describe('Camp (§L)', () => {
     expect(campOptions(run, meta).map((o) => o.id)).toEqual(['rest', 'drill', 'muster']);
   });
 });
+
+describe('event outcomes report what they granted', () => {
+  beforeEach(() => useMemoryStorage());
+
+  it('Cold Watch-Fire scavenge names the Boon it grants', () => {
+    const { run, meta } = atEvent('cold_watchfire');
+    const out = chooseEventOption(run, meta, 'scavenge');
+    expect(out.boons).toHaveLength(1);
+    expect(run.boons).toEqual(out.boons);
+    expect(BOONS[out.boons![0]].rarity).toBe('C');
+    expect(out.text).toContain(BOONS[out.boons![0]].name);
+  });
+
+  it('Sellswords and lost Boons are reported too; plain outcomes carry nothing extra', () => {
+    const arm = atEvent('refugees_ford');
+    expect(chooseEventOption(arm.run, arm.meta, 'arm').sellswords).toEqual(units('ashpike', 2, 1, 3));
+
+    const pray = atEvent('wayshrine', (r) => {
+      r.resolve = 2;
+      r.boons = ['laden_packs'];
+    });
+    expect(chooseEventOption(pray.run, pray.meta, 'pray').boonsLost).toEqual(['laden_packs']);
+
+    const leave = atEvent('wayshrine', undefined, 2);
+    const out = chooseEventOption(leave.run, leave.meta, 'leave');
+    expect(out).toEqual({ text: out.text });
+  });
+
+  it('Camp Drill with no Retinue reports its Sellswords', () => {
+    const { run, meta } = freshRun();
+    forceNode(run, meta, 'camp');
+    expect(chooseCamp(run, meta, 'drill').sellswords).toEqual(units('ashpike', 2, 1, 3));
+  });
+});
+

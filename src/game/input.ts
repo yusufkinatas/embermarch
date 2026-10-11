@@ -31,7 +31,7 @@ export interface InputHost {
   gesture(): void;
 }
 
-type Cursor = 'default' | 'select' | 'attack' | 'gather' | 'build' | 'target' | 'place' | 'pan';
+export type Cursor = 'default' | 'select' | 'attack' | 'gather' | 'build' | 'target' | 'place' | 'pan';
 
 export class BattleInput {
   private drag: { pointerId: number; sx: number; sy: number; moved: boolean; shift: boolean } | null = null;
@@ -39,7 +39,8 @@ export class BattleInput {
   private readonly keysDown = new Set<string>();
   /** Pointer position in canvas CSS px; inside = over the window. */
   private pointer = { x: -1, y: -1, inside: false, overCanvas: false };
-  private lastClick: { at: number; type: string; owner: number } | null = null;
+  /** Last plain click on an entity (double-click = same unit or same spot, same type and owner, in time). */
+  private lastClick: { at: number; id: number; x: number; y: number; type: string; owner: number } | null = null;
   private cursor: Cursor | '' = '';
   private hoverDirty = true;
   private readonly off: (() => void)[] = [];
@@ -102,6 +103,9 @@ export class BattleInput {
   /** Clear held state (window blur, tab hidden, menu opened). */
   reset(): void {
     this.keysDown.clear();
+    // A pointer resting at a screen edge while the window loses focus must not keep panning;
+    // the next pointermove marks it inside again.
+    this.pointer.inside = false;
     this.host.ui.showCounterWheel = false;
     this.host.ui.box = null;
     this.drag = null;
@@ -159,14 +163,20 @@ export class BattleInput {
     this.setCursor(this.cursorFor(e));
   }
 
-  private cursorFor(hover: Entity | null): Cursor {
+  /** Cursor for the hovered entity (or the tile under ui.mouseWorld when nothing is hovered). */
+  cursorFor(hover: Entity | null): Cursor {
     const { ui, actions } = this.host;
     if (this.mmb) return 'pan';
     if (ui.placement) return 'place';
     if (ui.targeting || actions.extraMode) return 'target';
     if (this.drag?.moved) return 'default';
-    if (!hover) return 'default';
     const info = classifySelection(this.host.world, ui.selection);
+    if (!hover) {
+      // Forest tiles are not entities: show the sickle over trees when Tillers could gather them.
+      const m = ui.mouseWorld;
+      if (info.kind === 'units' && info.units.some((u) => u.type === 'tiller') && actions.isTreeTile(m.x, m.y)) return 'gather';
+      return 'default';
+    }
     if (info.kind === 'units') {
       if (hover.owner === ENEMY && !hover.untargetable) return 'attack';
       const tillers = info.units.some((u) => u.type === 'tiller');
@@ -294,10 +304,9 @@ export class BattleInput {
       const w = camera.screenToWorld(p.x, p.y);
       const now = performance.now();
       const hit = actions.pick(w.x, w.y);
-      const dbl =
-        !!hit && !!this.lastClick && now - this.lastClick.at <= DOUBLE_CLICK_MS && hit.kind !== 'resource' && this.lastClick.type === hit.type && this.lastClick.owner === hit.owner;
+      const dbl = isDoubleClick(this.lastClick, hit, p, now);
       actions.clickSelect(w.x, w.y, shift, dbl);
-      this.lastClick = hit && hit.kind !== 'resource' && !dbl ? { at: now, type: hit.type, owner: hit.owner } : null;
+      this.lastClick = hit && hit.kind !== 'resource' && !dbl ? { at: now, id: hit.id, x: p.x, y: p.y, type: hit.type, owner: hit.owner } : null;
     }
     this.hoverDirty = true;
   }
@@ -343,6 +352,7 @@ export class BattleInput {
 
   private onKeyUp(e: KeyboardEvent): void {
     this.keysDown.delete(e.code);
+    if (e.key === 'Shift' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.host.actions.shiftReleased();
     if (e.code === 'Tab') {
       e.preventDefault();
       this.host.actions.setCounterWheel(false);
@@ -371,7 +381,7 @@ export class BattleInput {
         actions.selectHearth();
         return;
       case 'selectWarden':
-        actions.selectWarden();
+        actions.selectWarden(!!a.add);
         return;
       case 'idleTiller':
         actions.cycleIdleTiller();
@@ -403,6 +413,26 @@ export class BattleInput {
         return;
     }
   }
+}
+
+/** Max distance (CSS px) between two clicks on different units of one type to count as a double-click. */
+export const DOUBLE_CLICK_SLOP_PX = 6;
+
+/**
+ * A second click is a double-click only on the same unit, or on (almost) the same spot, with the
+ * same type and owner, within DOUBLE_CLICK_MS. Two quick clicks on two different Tillers select them
+ * one at a time (or add with Shift) instead of every Tiller on screen.
+ */
+export function isDoubleClick(
+  last: { at: number; id: number; x: number; y: number; type: string; owner: number } | null,
+  hit: { id: number; kind: string; type: string; owner: number } | null,
+  p: { x: number; y: number },
+  now: number,
+): boolean {
+  if (!hit || !last || hit.kind === 'resource') return false;
+  if (now - last.at > DOUBLE_CLICK_MS) return false;
+  if (last.type !== hit.type || last.owner !== hit.owner) return false;
+  return hit.id === last.id || Math.hypot(p.x - last.x, p.y - last.y) <= DOUBLE_CLICK_SLOP_PX;
 }
 
 function repeatable(a: KeyAction): boolean {

@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { netIncome } from '../../src/data/balance';
 import { BOONS } from '../../src/data/boons';
-import { spawnBuilding, spawnUnit } from '../../src/sim/entities';
+import { killEntity, spawnBuilding, spawnUnit } from '../../src/sim/entities';
 import { orderUnit } from '../../src/sim/orders';
 import { canPlaceBuilding } from '../../src/sim/queries';
 import { drainEvents, issueCommand } from '../../src/sim/world';
@@ -272,6 +272,48 @@ describe('construction', () => {
     spawnBuilding(w, 'thorn_nest', ENEMY, 38, 38);
     expect(canPlaceBuilding(w, 'cottage', 34, 38).reason).toBe('Too close to an enemy structure');
     expect(canPlaceBuilding(w, 'cottage', 33, 38).ok).toBe(true);
+  });
+});
+
+describe('builders whose source ran out during the build', () => {
+  function buildWhileDepleted(resources: { type: 'thicket' | 'ember_seam'; tx: number; ty: number; amount: number }[]) {
+    const w = makeWorld({}, { resources, forest: null });
+    w.debug.revealAll = true;
+    const t = units(w, PLAYER, 'tiller')[0];
+    const a = w.resources.find((r) => r.type === 'thicket')!;
+    orderUnit(w, t, { type: 'gather', target: { kind: 'node', id: a.id } });
+    step(w, 4);
+    expect(issueCommand(w, { type: 'build', unitIds: [t.id], building: 'cottage', tx: 12, ty: 17 }).ok).toBe(true);
+    step(w, 2);
+    expect(t.order.type).toBe('build');
+    killEntity(w, a, 0); // another Tiller took the last Grain
+    drainEvents(w);
+    expect(stepUntil(w, () => w.buildings.some((b) => b.type === 'cottage' && b.built), 60)).toBeLessThan(60);
+    step(w, 0.5);
+    return { w, t, a };
+  }
+
+  it('the Tiller gathers another Thicket within reach of the old one', () => {
+    const { w, t } = buildWhileDepleted([
+      { type: 'thicket', tx: 13, ty: 7, amount: 150 },
+      { type: 'thicket', tx: 13, ty: 13, amount: 150 },
+      { type: 'ember_seam', tx: 4, ty: 16, amount: 800 },
+    ]);
+    const b = w.resources.find((r) => r.type === 'thicket')!;
+    expect(b.ty).toBe(13);
+    expect(t.order).toMatchObject({ type: 'gather', target: { kind: 'node', id: b.id } });
+    expect(t.job).toEqual({ kind: 'node', id: b.id });
+  });
+
+  it('with no Grain within 10 tiles it goes idle and raises the idle alert', () => {
+    const { w, t } = buildWhileDepleted([
+      { type: 'thicket', tx: 13, ty: 7, amount: 150 },
+      { type: 'thicket', tx: 40, ty: 40, amount: 150 },
+      { type: 'ember_seam', tx: 4, ty: 16, amount: 800 },
+    ]);
+    expect(t.order.type).toBe('idle');
+    expect(t.job).toBeNull();
+    expect(drainEvents(w).some((e) => e.t === 'alert' && e.kind === 'idle_tillers')).toBe(true);
   });
 });
 

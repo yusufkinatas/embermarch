@@ -1,6 +1,6 @@
 /**
  * Objective tracker (top right, GDD §O): tracker text from the encounter view ("Nests 1/2 · Par
- * 4:12", "Kindling 140/300", "Waves 4/6", "Burn the Root Hearts 1/3 · Regent Warded"), the par
+ * 4:12", "Kindling 140/450", "Waves 4/6", "Burn the Root Hearts 1/3 · Regent Warded"), the par
  * timer (greys out when missed), battle Crowns, and the Boon tray with tooltips. Modifiers sit
  * under the Boons.
  */

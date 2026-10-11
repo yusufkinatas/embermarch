@@ -147,7 +147,7 @@ export function mountHall(app: AppCtx, from: 'title' | 'summary'): ScreenHandle 
             ['Marches', s.runs],
             ['Victories', s.wins],
             ['Slain', s.kills],
-            ['Deepest', s.bestDepth || '—'],
+            ['Deepest column', s.bestDepth ? roman(s.bestDepth) : '—'],
             ['Renown earned', s.totalRenown],
           ].map(([k, v]) => h('div', { class: 'stat' }, h('span', { class: 'k' }, String(k)), h('span', { class: 'v' }, String(v)))),
         ),

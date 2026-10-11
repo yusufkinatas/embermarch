@@ -20,7 +20,7 @@ export class Countdown {
    * countdown = world.countdown (s); now = real time; simTime = world.time. "Kindle!" holds for
    * 1.2 s of real time, but never once the battle clock is past 1.5 s (fast-forward, debug step).
    */
-  update(countdown: number, now: number, simTime = 0): void {
+  update(countdown: number, now: number, simTime = 0, suppressed = false): void {
     let label = '';
     if (countdown > 0) {
       label = String(Math.max(1, Math.ceil(countdown - 1e-6)));
@@ -37,7 +37,8 @@ export class Countdown {
       void this.num.offsetWidth;
       if (label) this.num.classList.add('pop');
     }
-    setHidden(this.el, !label);
+    // Paused or menu open: the big numeral / "Kindle!" must not sit over the pause pill or menu.
+    setHidden(this.el, !label || suppressed);
   }
 
   /** Begin showing (battle mounted with countdown > 0). */
@@ -80,12 +81,15 @@ export class Banner {
   }
 }
 
+/**
+ * Active pause frame: a thin amber inner border around the playfield (pointer-events: none). The
+ * words live in the top-bar pill, so the battlefield centre (where H, Space and group recall put the
+ * army) stays clear.
+ */
 export class PausedLabel {
   readonly el: HTMLDivElement;
   constructor(parent: HTMLElement) {
-    this.el = h('div', 'bt-paused bt-hidden', parent);
-    h('div', 'bt-paused-title', this.el, 'Paused');
-    h('div', 'bt-paused-sub', this.el, 'Orders are still accepted · F2 to resume');
+    this.el = h('div', 'bt-pause-frame bt-hidden', parent);
   }
   update(paused: boolean): void {
     setHidden(this.el, !paused);

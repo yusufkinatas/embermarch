@@ -3,6 +3,7 @@
  * Display data comes straight from the data tables (single source of truth).
  */
 import type { BoonId, DraftId, PlayerUnitId, Cost } from '../../sim/types';
+import type { EventOutcome } from '../../run/types';
 import type { BoonDef, Rarity } from '../../data/types';
 import { BOONS } from '../../data/boons';
 import { DRAFTS } from '../../data/drafts';
@@ -11,7 +12,7 @@ import { BUILDINGS } from '../../data/buildings';
 import { CLASS_NAMES, RARITY_NAMES, TAG_NAMES } from '../../data/text';
 import { h, type Child } from '../dom';
 import { glyph, RESOURCE_GLYPH, TAG_GLYPH, divider } from './glyphs';
-import { portrait } from './portraits';
+import { portrait, unitChip } from './portraits';
 import { ttRow, ttSub, ttTitle } from './tooltip';
 
 export function boonDef(id: BoonId): BoonDef {
@@ -150,6 +151,21 @@ export function unitTooltip(type: PlayerUnitId, extra?: Child): Child {
     u.weakVs.length ? ttRow('Weak', u.weakVs.map((c) => CLASS_NAMES[c]).join(', ')) : null,
     extra ?? null,
   ];
+}
+
+/**
+ * What an event or camp choice granted or took, as cards: Boons (name, rarity, tags, text),
+ * Drafts and Sellswords. Null when the outcome changed none of these.
+ */
+export function outcomeGrants(out: EventOutcome): HTMLElement | null {
+  const groups: HTMLElement[] = [];
+  const group = (label: string, cls: string, items: HTMLElement[]): void => {
+    if (items.length) groups.push(h('div', { class: `og-group ${cls}` }, h('div', { class: 'label-caps' }, label), h('div', { class: 'og-cards' }, items)));
+  };
+  group('Gained', 'og-gain', [...(out.boons ?? []).map((id) => boonCard(id, { compact: true })), ...(out.drafts ?? []).map((id) => draftCard(id))]);
+  group('Lost', 'og-lost', (out.boonsLost ?? []).map((id) => boonCard(id, { compact: true })));
+  group('Sellswords for the next battle', 'og-sell', (out.sellswords ?? []).map((u) => unitChip(u, { sellsword: true })));
+  return groups.length ? h('div', { class: 'outcome-grants' }, groups) : null;
 }
 
 /** Card back face used by the flip-in ceremony. */

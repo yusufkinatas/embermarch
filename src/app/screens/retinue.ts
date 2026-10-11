@@ -122,6 +122,28 @@ export function mountRetinue(app: AppCtx): ScreenHandle {
     'Clear',
   );
 
+  // Long survivor lists scroll: a pill says how many cards are still below the fold.
+  const scroller = h('div', { class: 'retinue-scroll scroll' }, grid);
+  const morePill = h(
+    'button',
+    {
+      class: 'retinue-more',
+      onclick: () => scroller.scrollBy({ top: scroller.clientHeight * 0.8, behavior: 'smooth' }),
+    },
+    h('span', { class: 'rm-text' }),
+    glyph('next', 'rm-arrow'),
+  );
+  const paintMore = (): void => {
+    const bottom = scroller.scrollTop + scroller.clientHeight;
+    const top = scroller.getBoundingClientRect().top - scroller.scrollTop;
+    let hidden = 0;
+    for (const c of cardAt) if (c && c.getBoundingClientRect().bottom - top > bottom + 2) hidden++;
+    morePill.classList.toggle('show', hidden > 0);
+    morePill.querySelector('.rm-text')!.textContent = `${hidden} more below`;
+  };
+  scroller.addEventListener('scroll', paintMore, { passive: true });
+  const ro = new ResizeObserver(() => paintMore());
+
   const el = h(
     'div',
     { class: 'scr retinue-scr' },
@@ -150,11 +172,18 @@ export function mountRetinue(app: AppCtx): ScreenHandle {
         none,
       ),
       cands.length
-        ? h('div', { class: 'retinue-scroll scroll' }, grid)
+        ? h('div', { class: 'retinue-scroll-wrap' }, scroller, morePill)
         : h('div', { class: 'panel panel-pad muted center' }, 'No soldiers survived to be carried forward.'),
       h('div', { class: 'reward-actions' }, confirm),
     ),
   );
   paint();
-  return { el };
+  return {
+    el,
+    mounted: () => {
+      ro.observe(scroller);
+      paintMore();
+    },
+    destroy: () => ro.disconnect(),
+  };
 }

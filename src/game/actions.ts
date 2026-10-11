@@ -7,7 +7,7 @@ import { ABILITIES } from '../data/balance';
 import { BUILDINGS } from '../data/buildings';
 import { HOUSES } from '../data/houses';
 import type { Camera } from '../render/camera';
-import { idleTillers, pickEntityAt, playerMilitary, canPlaceBuilding, commandCard, unitsInRect, type CommandOption } from '../sim/queries';
+import { idleTillers, isTileExplored, pickEntityAt, playerMilitary, canPlaceBuilding, commandCard, unitsInRect, type CommandOption } from '../sim/queries';
 import type { BattleSetup, Building, Command, CommandResult, Entity, PlayerBuildingId, PlayerUnitId, ResearchId, Unit, World } from '../sim/types';
 import { PLAYER, TICK_RATE, Terrain } from '../sim/types';
 import { issueCommand } from '../sim/world';
@@ -54,7 +54,12 @@ export interface ActionHost {
   ended(): boolean;
   /** Settings changed by a hotkey (mute). */
   onMuteChanged(muted: boolean): void;
+  /** Ask the HUD to run its 10 Hz refresh on the next frame (selection changed). */
+  invalidateHud?(): void;
 }
+
+/** Tillers reach a tree tile whose canopy overhangs the click point within this many tiles. */
+export const CANOPY_REACH = 0.6;
 
 /** Internal input modes not representable in BattleUIState.targeting. */
 export type ExtraMode = null | { kind: 'rally' };
@@ -75,6 +80,8 @@ export class BattleActions {
   extraMode: ExtraMode = null;
   /** True while the current placement session already placed one foundation (Shift keeps placing). */
   private placedThisSession = false;
+  /** True once a Shift-queued attack-move was issued in the current attack-move mode. */
+  private queuedAttackMove = false;
   private lastTap: { key: string; at: number } = { key: '', at: 0 };
   private lastIdleId = 0;
   private demolishArm: { ids: string; at: number } | null = null;
@@ -138,6 +145,8 @@ export class BattleActions {
     const next = normalizeSelection(this.world, ids);
     this.ui.selection = next;
     this.cancelModes();
+    // The command card must never act on the previous selection's options (B7).
+    this.host.invalidateHud?.();
     if (sound && next.length) {
       const e = this.world.entities.get(next[0]);
       const cls = e && e.kind === 'unit' ? e.cls : 'infantry';
@@ -217,7 +226,8 @@ export class BattleActions {
     if (dbl) this.centerOn(e.x, e.y);
   }
 
-  selectWarden(): void {
+  /** ` selects the Warden; Shift+` toggles the Warden in the current selection (like Shift+LMB). */
+  selectWarden(add = false): void {
     const id = this.world.wardenId;
     const e = id ? this.world.entities.get(id) : undefined;
     if (!e || !e.alive) {
@@ -227,7 +237,10 @@ export class BattleActions {
       return;
     }
     const dbl = this.doubleTap('warden');
-    this.setSelection([id]);
+    if (add) {
+      // A double-tap centres without toggling the Warden back out of the selection.
+      if (!dbl || !this.ui.selection.includes(id)) this.setSelection(combineSelection(this.world, this.ui.selection, [id], 'toggle'));
+    } else this.setSelection([id]);
     if (dbl) this.centerOn(e.x, e.y);
   }
 
@@ -313,6 +326,19 @@ export class BattleActions {
     const target = allowTarget ? this.pick(wx, wy) : null;
     if (info.kind === 'units') {
       const ids = info.units.map((u) => u.id);
+      const tillers = info.units.filter((u) => u.type === 'tiller');
+      // Canopy art overhangs the grass around a forest: a right-click just outside a tree still gathers it.
+      const canopy = !target && tillers.length && !this.isTreeTile(wx, wy) ? this.canopyTreeAt(wx, wy) : null;
+      if (canopy !== null) {
+        const res = this.issue({ type: 'gather', unitIds: tillers.map((u) => u.id), target: { kind: 'tree', tile: canopy }, queue });
+        const others = info.units.filter((u) => u.type !== 'tiller').map((u) => u.id);
+        if (res.ok && others.length) this.issue({ type: 'move', unitIds: others, x: wx, y: wy, queue }, true);
+        if (res.ok) {
+          this.play('acknowledge');
+          this.host.hints.signal('first_gather');
+        }
+        return;
+      }
       const res = this.issue({ type: 'smart', unitIds: ids, x: wx, y: wy, targetId: target ? target.id : undefined, queue });
       if (res.ok) {
         this.play('acknowledge');
@@ -497,6 +523,15 @@ export class BattleActions {
     this.ui.targeting = null;
     this.extraMode = null;
     this.placedThisSession = false;
+    this.queuedAttackMove = false;
+  }
+
+  /**
+   * Shift released: an attack-move mode that already queued Shift+click waypoints ends, so the next
+   * plain left-click selects again instead of issuing one more attack-move.
+   */
+  shiftReleased(): void {
+    if (this.ui.targeting?.kind === 'attackMove' && this.queuedAttackMove) this.cancelModes();
   }
 
   startAttackMove(): void {
@@ -550,13 +585,17 @@ export class BattleActions {
       this.cancelModes();
       return;
     }
+    // Shift-placing queues behind work the Tillers already have: a later foundation in this session,
+    // or a build order from an earlier session (T+click, then Shift+C + Shift+click must not abandon
+    // the first foundation). A gathering, moving or idle Tiller starts the build now.
+    const queue = shift && (this.placedThisSession || tillers.some((u) => u.order.type === 'build' || u.queue.length > 0));
     const res = this.issue({
       type: 'build',
       unitIds: tillers.map((u) => u.id),
       building: cur.building,
       tx: cur.tx,
       ty: cur.ty,
-      queue: shift && this.placedThisSession,
+      queue,
     });
     if (!res.ok) return;
     this.play('acknowledge');
@@ -581,7 +620,8 @@ export class BattleActions {
     if (!t) return;
     if (t.kind === 'attackMove') {
       this.attackMoveAt(wx, wy, shift);
-      if (!shift) this.ui.targeting = null;
+      if (!shift) this.cancelModes();
+      else this.queuedAttackMove = true;
       return;
     }
     const res = this.issue({ type: 'ability', slot: t.slot, x: wx, y: wy });
@@ -621,15 +661,19 @@ export class BattleActions {
     this.play('ui_click');
   }
 
+  /** Speed buttons: change the speed and keep the pause state (AoE2 behaviour). */
   setSpeed(s: number): void {
+    const changed = s !== this.ui.speed;
     this.ui.speed = s;
+    if (this.ui.paused) this.host.notice(`Speed ${s}× · still paused`);
+    else if (changed) this.host.notice(`Speed ${s}×`);
   }
 
   stepSpeed(dir: -1 | 1): void {
     const next = nextSpeed(this.ui.speed, dir);
     if (next !== this.ui.speed) {
       this.ui.speed = next;
-      this.host.notice(`Speed ${next}×`);
+      this.host.notice(this.ui.paused ? `Speed ${next}× · still paused` : `Speed ${next}×`);
     }
   }
 
@@ -668,6 +712,48 @@ export class BattleActions {
     const ty = Math.floor(wy);
     if (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h) return false;
     return map.terrain[ty * map.w + tx] === Terrain.Forest;
+  }
+
+  /** A forest tile that still has Timber (what the sim's smart command gathers). */
+  isTreeTile(wx: number, wy: number): boolean {
+    if (!this.isForest(wx, wy)) return false;
+    const { map } = this.world;
+    return map.treeAmount[Math.floor(wy) * map.w + Math.floor(wx)] > 0;
+  }
+
+  /**
+   * Nearest explored tree tile (Timber left) whose tile rect lies within CANOPY_REACH of a point,
+   * or null. Used for right-clicks on the canopy overhang just outside a forest.
+   */
+  canopyTreeAt(wx: number, wy: number): number | null {
+    if (!Number.isFinite(wx) || !Number.isFinite(wy)) return null;
+    const { map } = this.world;
+    const cx = Math.floor(wx);
+    const cy = Math.floor(wy);
+    let best: number | null = null;
+    let bestD = CANOPY_REACH;
+    for (let ty = cy - 1; ty <= cy + 1; ty++) {
+      for (let tx = cx - 1; tx <= cx + 1; tx++) {
+        if (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h) continue;
+        const tile = ty * map.w + tx;
+        if (map.terrain[tile] !== Terrain.Forest || map.treeAmount[tile] <= 0) continue;
+        let explored = true;
+        try {
+          explored = isTileExplored(this.world, tx, ty);
+        } catch {
+          /* fog unavailable: allow */
+        }
+        if (!explored) continue;
+        const dx = Math.max(tx - wx, 0, wx - (tx + 1));
+        const dy = Math.max(ty - wy, 0, wy - (ty + 1));
+        const d = Math.hypot(dx, dy);
+        if (d <= bestD) {
+          bestD = d;
+          best = tile;
+        }
+      }
+    }
+    return best;
   }
 }
 

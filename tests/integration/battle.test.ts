@@ -147,6 +147,28 @@ describe('Holdfast d3', () => {
   }
 });
 
+describe('Holdfast with no input', () => {
+  // The Hearth and the respawning Warden alone must never hold all six waves (fix pass S2).
+  it('d1-d3, seeds 1-4: never a victory', async () => {
+    const { generateMap } = await import('../../src/mapgen');
+    const { quickBattleSetup } = await import('../../src/run');
+    const { createWorld, stepWorld } = await import('../../src/sim/world');
+    const out: string[] = [];
+    for (const depth of [1, 2, 3]) {
+      for (const seed of [1, 2, 3, 4]) {
+        const setup = quickBattleSetup({ objective: 'holdfast', depth, seed });
+        const gen = generateMap({ seed: setup.seed, objective: setup.objective, biome: setup.biome, depth: setup.depth, modifiers: setup.modifiers });
+        const w = createWorld(setup, gen);
+        while (w.countdown > 0) stepWorld(w);
+        while (w.outcome === 'ongoing' && w.time < 480) stepWorld(w);
+        out.push(`d${depth} s${seed}: ${w.outcome} at ${w.time.toFixed(0)} s`);
+      }
+    }
+    if (VERBOSE) console.log(out.join('\n'));
+    expect(out.filter((l) => l.includes('victory')), out.join('\n')).toEqual([]);
+  });
+});
+
 describe('Noble Hunt (elite) d3', () => {
   it('waves on schedule, the Antlered Lord rides out with wave 3 and fights', () => {
     let lordMoved = 0;
@@ -177,10 +199,10 @@ describe('Beacons d2', () => {
     expectRazeSchedule(r, 2);
     expect(r.world.outcome).toBe('victory');
     const view = getEncounterView(r.world);
-    expect(view.kindling).toEqual({ value: 300, target: 300 });
-    expect(view.trackerText.startsWith('Kindling 300/300')).toBe(true);
-    // Stones wake at 1:30 and light after 10 s, so 300 Kindling needs at least 100 s more.
-    expect(r.world.time).toBeGreaterThan(200);
+    expect(view.kindling).toEqual({ value: 450, target: 450 });
+    expect(view.trackerText.startsWith('Kindling 450/450')).toBe(true);
+    // Stones wake at 1:30 and light after 10 s, so 450 Kindling needs at least 150 s more (3/s).
+    expect(r.world.time).toBeGreaterThan(250);
     expect(r.events.beacon ?? 0).toBeGreaterThanOrEqual(3);
   });
 });

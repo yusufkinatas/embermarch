@@ -12,32 +12,87 @@ import { portraitUrl } from '../ui/portraits';
 
 type Tab = 'controls' | 'counters' | 'economy' | 'nests' | 'march';
 
-const CONTROLS: [string[], string][] = [
-  [['LMB', 'Drag'], 'Select / box-select. Military and the Warden take priority over Tillers.'],
-  [['Shift', 'LMB'], 'Add to or remove from the selection'],
-  [['Dbl-click'], 'Select all of that type on screen'],
-  [['RMB'], 'Smart command: move, attack, gather, build / repair, rally'],
-  [['Shift', 'RMB'], 'Queue orders (up to 8)'],
-  [['A', 'LMB'], 'Attack-move'],
-  [['S'], 'Stop'],
-  [['G'], 'Hold ground'],
-  [['Ctrl', '1-9'], 'Make a group (or Alt+1-9, or RMB a group slot)'],
-  [['1-9'], 'Recall a group (double-tap centers)'],
-  [['H'], 'Select the Hearth'],
-  [['`'], 'Select the Warden'],
-  [['.'], 'Cycle idle Tillers'],
-  [[','], 'Select all military'],
-  [['Space'], 'Jump to the latest alert'],
-  [['Q', 'W', 'E'], 'Train (building) / Warden abilities'],
-  [['Z', 'X', 'C'], 'Research or Temper'],
-  [['V'], 'Rally the Hearth'],
-  [['Tab'], 'Hold for the Counter Wheel'],
-  [['F2'], 'Pause (orders still allowed)'],
-  [['−', '='], 'Slower / faster (1×, 1.5×, 2×)'],
-  [['M'], 'Mute'],
-  [['Esc'], 'Cancel, deselect, then the pause menu'],
-  [['Arrows', 'Edge', 'MMB'], 'Pan the camera'],
-  [['Wheel'], 'Zoom'],
+/**
+ * A control row. `sep` says how the keys combine: '+' a chord held together, '/' alternatives
+ * that do the same thing, '›' a sequence (press, then click).
+ */
+interface Control {
+  k: string[];
+  sep: '+' | '/' | '›';
+  d: string;
+}
+const chord = (d: string, ...k: string[]): Control => ({ k, sep: '+', d });
+const either = (d: string, ...k: string[]): Control => ({ k, sep: '/', d });
+const seq = (d: string, ...k: string[]): Control => ({ k, sep: '›', d });
+const one = (k: string, d: string): Control => ({ k: [k], sep: '+', d });
+
+interface ControlGroup {
+  title: string;
+  icon: GlyphName;
+  rows: Control[];
+}
+
+const CONTROL_GROUPS: ControlGroup[][] = [
+  [
+    {
+      title: 'Select and command',
+      icon: 'swords',
+      rows: [
+        either('Select / box-select. Military and the Warden take priority over Tillers.', 'LMB', 'Drag'),
+        chord('Add to or remove from the selection', 'Shift', 'LMB'),
+        one('Dbl-click', 'Select all of that type on screen'),
+        one('RMB', 'Smart command: move, attack, gather, build / repair, rally'),
+        chord('Queue orders (up to 8)', 'Shift', 'RMB'),
+        seq('Attack-move', 'A', 'LMB'),
+        one('S', 'Stop'),
+        one('G', 'Hold ground'),
+        one('Space', 'Jump to the latest alert'),
+        one('Esc', 'Cancel, deselect, then the pause menu'),
+      ],
+    },
+  ],
+  [
+    {
+      title: 'Groups and camera',
+      icon: 'people',
+      rows: [
+        chord('Make a group (also Alt + 1-9, or RMB a group slot)', 'Ctrl', '1-9'),
+        chord('Add the selection to a group', 'Shift', '1-9'),
+        one('1-9', 'Recall a group (double-tap centres)'),
+        one('H', 'Select the Hearth'),
+        one('`', 'Select the Warden'),
+        chord('Add the Warden to the selection', 'Shift', '`'),
+        either('Double-tap to centre on the Hearth or the Warden', 'H', '`'),
+        one('.', 'Cycle idle Tillers'),
+        one(',', 'Select all military'),
+        either('Pan the camera', 'Arrows', 'Edge', 'MMB'),
+        one('Wheel', 'Zoom'),
+      ],
+    },
+    {
+      title: 'On the minimap',
+      icon: 'info',
+      rows: [one('LMB', 'Jump the camera there; drag to scrub'), one('RMB', 'Move, attack or set a rally point there')],
+    },
+  ],
+  [
+    {
+      title: 'Train and fight',
+      icon: 'muster',
+      rows: [
+        either('Train (building) / Warden abilities', 'Q', 'W', 'E'),
+        chord('Train 5 at once (or Shift-click the button)', 'Shift', 'Q'),
+        either('Research or Temper', 'Z', 'X', 'C'),
+        one('V', 'Rally the Hearth'),
+        either('Cancel a foundation. Press twice to demolish.', 'Del', 'Bksp'),
+        either('On a queue slot: cancel that unit', 'LMB', 'RMB'),
+        one('Tab', 'Hold for the Counter Wheel'),
+        either('Pause (orders still allowed)', 'F2', 'Pause'),
+        either('Slower / faster (1×, 1.5×, 2×)', '−', '='),
+        one('M', 'Mute'),
+      ],
+    },
+  ],
 ];
 
 const BUILD_KEYS: [string, string][] = [
@@ -52,30 +107,42 @@ const BUILD_KEYS: [string, string][] = [
   ['Y', 'Siegeyard'],
 ];
 
-function keys(k: string[]): HTMLElement {
+const SEP_CLASS: Record<Control['sep'], string> = { '+': 'sep-chord', '/': 'sep-alt', '›': 'sep-then' };
+
+function keys(k: string[], sep: Control['sep'] = '+'): HTMLElement {
   return h(
     'span',
     { class: 'keys' },
-    k.map((x, i) => [i > 0 ? h('span', { class: 'plus' }, '+') : null, h('span', { class: 'kbd' }, x)]),
+    k.map((x, i) => [i > 0 ? h('span', { class: `plus ${SEP_CLASS[sep]}` }, sep) : null, h('span', { class: 'kbd' }, x)]),
   );
 }
 
 function controlsTab(): Child {
-  const half = Math.ceil(CONTROLS.length / 2);
-  const table = (rows: [string[], string][]): HTMLElement =>
-    h('table', { class: 'ctrl-table' }, h('tbody', null, rows.map(([k, d]) => h('tr', null, h('td', { class: 'ck' }, keys(k)), h('td', null, d)))));
+  // One table per column, so the key column lines up across that column's groups.
+  const table = (groups: ControlGroup[]): HTMLElement =>
+    h(
+      'table',
+      { class: 'ctrl-table' },
+      h(
+        'tbody',
+        null,
+        groups.flatMap((g) => [
+          h('tr', { class: 'ctrl-group' }, h('td', { colspan: '2' }, h('div', { class: 'panel-title ctrl-head' }, glyph(g.icon), g.title))),
+          ...g.rows.map((r) => h('tr', null, h('td', { class: 'ck' }, keys(r.k, r.sep)), h('td', null, r.d))),
+        ]),
+      ),
+    );
+  const cols = CONTROL_GROUPS.map((groups) => h('div', { class: 'col ctrl-col' }, table(groups)));
+  cols[2].append(
+    h('div', { class: 'panel-title ctrl-head' }, glyph('hammer'), 'With Tillers selected'),
+    h('div', { class: 'build-keys' }, BUILD_KEYS.map(([k, n]) => h('span', { class: 'bk' }, h('span', { class: 'kbd' }, k), n))),
+    h('div', { class: 'tiny muted' }, 'Shift keeps placing. RMB or Esc cancels.'),
+  );
   return h(
     'div',
-    { class: 'howto-cols' },
-    h('div', { class: 'col' }, table(CONTROLS.slice(0, half))),
-    h(
-      'div',
-      { class: 'col' },
-      table(CONTROLS.slice(half)),
-      h('div', { class: 'panel-title', style: 'margin-top:.6rem' }, glyph('hammer'), 'With Tillers selected'),
-      h('div', { class: 'build-keys' }, BUILD_KEYS.map(([k, n]) => h('span', { class: 'bk' }, h('span', { class: 'kbd' }, k), n))),
-      h('div', { class: 'tiny muted' }, 'Shift keeps placing. RMB or Esc cancels.'),
-    ),
+    { class: 'howto-ctrl' },
+    h('div', { class: 'howto-cols three' }, cols),
+    h('div', { class: 'tiny muted ctrl-legend' }, keys(['A', 'B'], '+'), ' hold together · ', keys(['A', 'B'], '/'), ' either one · ', keys(['A', 'B'], '›'), ' one, then the other'),
   );
 }
 

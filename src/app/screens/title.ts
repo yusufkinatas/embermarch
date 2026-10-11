@@ -9,6 +9,7 @@ import { h, roman } from '../dom';
 import { divider, glyph, type GlyphName } from '../ui/glyphs';
 import { EmberField } from '../ui/embers';
 import { resolvePips } from '../ui/header';
+import { settleFinishedRun } from '../logic/flow';
 
 function menuButton(label: string, icon: GlyphName, onclick: () => void, opts: { primary?: boolean; sub?: HTMLElement | null; badge?: string } = {}): HTMLButtonElement {
   return h(
@@ -37,7 +38,13 @@ export function mountTitle(app: AppCtx): ScreenHandle {
   const onNew = async (): Promise<void> => {
     app.click();
     const r = app.run;
-    if (r && !r.over) {
+    if (r && r.over) {
+      // The march ended but its March End never showed (closed on Results, reload, crash):
+      // bank it now, or newRun would overwrite the save and its Renown would be lost.
+      const summary = app.guard('endRun', () => settleFinishedRun(app.api, r, app.meta));
+      app.run = null;
+      if (summary) app.toast(`Your last march is counted. +${summary.renownTotal} Renown.`, 'good');
+    } else if (r) {
       const ok = await app.confirm({
         title: 'Abandon the march?',
         text: `Your march with ${HOUSES[r.house].name} ends here. Renown for the road already walked is still earned.`,

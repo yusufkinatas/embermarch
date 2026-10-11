@@ -124,18 +124,20 @@ describe('wave director', () => {
     }
     expect(getEncounterView(w).horn!.phase).toBe('advancing');
 
-    // Break the wave 10 s after launch: Spent ends 30 s later.
+    // Break the wave 10 s after launch: Spent ends 45 s later.
     stepTo(w, 116);
     fake.killAll(w, waveUnits(w, 1));
     fake.step(w, 0.1);
     expect(events(w, 'waveBroken')).toHaveLength(1);
     const alert = w.events.find((e) => e.t === 'alert' && e.kind === 'wave_broken');
-    expect(alert && alert.t === 'alert' && alert.text).toMatch(/^Wave 1 broken\. [NESW]{1,2} Nest Spent 0:30$/);
+    expect(alert && alert.t === 'alert' && alert.text).toMatch(/^Wave 1 broken\. [NESW]{1,2} Nest Spent 0:45$/);
     const v = getEncounterView(w);
     const vn = v.nests.find((n) => n.id === nestId)!;
     expect(vn.spent).toBe(true);
-    expect(vn.spentRemaining).toBeCloseTo(30, 0);
-    stepTo(w, 146.3);
+    expect(vn.spentRemaining).toBeCloseTo(45, 0);
+    stepTo(w, 160.9);
+    expect(getEncounterView(w).nests.find((n) => n.id === nestId)!.spent).toBe(true);
+    stepTo(w, 161.3);
     expect(getEncounterView(w).nests.find((n) => n.id === nestId)!.spent).toBe(false);
   });
 
@@ -528,7 +530,7 @@ describe('Caches and Beacons', () => {
     expect(events(w, 'cacheLooted')).toHaveLength(1);
   });
 
-  it('Beacons: dormant until 1:30, capture 10 s, Kindling to 300 wins', () => {
+  it('Beacons: dormant until 1:30, capture 10 s, Kindling to 450 wins', () => {
     const w = fake.makeWorld({ objective: 'beacons', depth: 1, beacons: [{ tx: 24, ty: 24 }, { tx: 30, ty: 14 }, { tx: 14, ty: 30 }] });
     for (const u of fake.enemyUnits(w, 'beacon_guard')) fake.killEntity(w, u, 0);
     fake.purge(w);
@@ -538,9 +540,9 @@ describe('Caches and Beacons', () => {
     stepTo(w, 100.2);
     expect(st(w).beacons[0].lit).toBe(true);
     expect(w.vision.some((v) => v.tag.startsWith('beacon:'))).toBe(true);
-    expect(getEncounterView(w).kindling).toEqual({ value: 0, target: 300 });
-    // Keep the waves away from the beacon so Kindling accrues.
-    while (w.outcome === 'ongoing' && w.time < 420) {
+    expect(getEncounterView(w).kindling).toEqual({ value: 0, target: 450 });
+    // Keep the waves away from the beacon so Kindling accrues (one stone: 1 point/s).
+    while (w.outcome === 'ongoing' && w.time < 580) {
       fake.step(w, 2);
       fake.killAll(w, fake.enemyUnits(w).filter((u) => u.ai?.role === 'wave' || u.ai?.role === 'raid'));
     }
@@ -668,7 +670,7 @@ describe('director details', () => {
   it('tracker texts per objective (§O)', () => {
     expect(getEncounterView(fake.makeWorld({ objective: 'elite', depth: 3 })).trackerText).toBe('Nests 0/2 · Lord 0/1 · Par 6:30');
     const b = fake.makeWorld({ objective: 'beacons', depth: 1, beacons: [{ tx: 24, ty: 24 }] });
-    expect(getEncounterView(b).trackerText).toBe('Kindling 0/300');
+    expect(getEncounterView(b).trackerText).toBe('Kindling 0/450');
     const h = fake.makeWorld({ objective: 'holdfast', depth: 1 });
     expect(getEncounterView(h).trackerText).toBe('Waves 0/6');
     const r3 = fake.makeWorld({ objective: 'raze', depth: 5, nests: [{ tx: 36, ty: 8 }, { tx: 8, ty: 36 }, { tx: 36, ty: 36 }] });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/core/rng';
-import { BLIGHT, ENEMY_UNLOCK_DEPTH, blightParams, nestFactor, rootbreakerCap } from '../../src/data/balance';
+import { BLIGHT, ENEMY_UNLOCK_DEPTH, SPENT, blightParams, nestFactor, rootbreakerCap } from '../../src/data/balance';
 import { UNITS } from '../../src/data/units';
 import {
   NOT_SPENT,
@@ -53,12 +53,12 @@ const WAVE_TABLE: Record<number, string[]> = {
 
 // GDD §C Holdfast table.
 const HOLDFAST_TABLE: Record<number, number[]> = {
-  1: [6, 10, 14, 19, 26, 40],
-  2: [6, 11, 15, 21, 29, 44],
-  3: [7, 12, 17, 23, 32, 49],
-  4: [8, 13, 19, 25, 35, 54],
-  5: [8, 14, 20, 28, 38, 59],
-  6: [9, 16, 22, 30, 41, 64],
+  1: [8, 13, 18, 25, 34, 52],
+  2: [8, 13, 19, 26, 36, 55],
+  3: [8, 14, 20, 28, 38, 58],
+  4: [9, 15, 21, 29, 40, 61],
+  5: [9, 16, 22, 31, 42, 64],
+  6: [10, 16, 23, 32, 44, 67],
 };
 
 describe('wave values and schedule (GDD §C)', () => {
@@ -270,23 +270,27 @@ describe('light adaptation (SHOULD)', () => {
 
 describe('Spent clock (GDD §I "Spent")', () => {
   const R = 20;
-  it('starts at launch and lasts 90 s if the wave lives', () => {
+  it('Spent lasts 45 s after the break, capped at 105 s from launch', () => {
+    expect(SPENT.afterBroken).toBe(45);
+    expect(SPENT.maxFromLaunch).toBe(105);
+  });
+  it('starts at launch and lasts 105 s if the wave lives', () => {
     const c = spentOnLaunch(3, 1000, R);
-    expect(c.until).toBe(1000 + 90 * R);
+    expect(c.until).toBe(1000 + 105 * R);
     expect(spentActive(c, 1000)).toBe(true);
-    expect(spentActive(c, 1000 + 90 * R - 1)).toBe(true);
-    expect(spentActive(c, 1000 + 90 * R)).toBe(false);
+    expect(spentActive(c, 1000 + 105 * R - 1)).toBe(true);
+    expect(spentActive(c, 1000 + 105 * R)).toBe(false);
   });
-  it('ends 30 s after the wave breaks', () => {
+  it('ends 45 s after the wave breaks', () => {
     const c = spentOnBroken(spentOnLaunch(3, 1000, R), 3, 1000 + 20 * R, R);
-    expect(c.until).toBe(1000 + 50 * R);
-    // A break late in the window still grants the full 30 s.
-    const late = spentOnBroken(spentOnLaunch(3, 0, R), 3, 80 * R, R);
-    expect(late.until).toBe(110 * R);
+    expect(c.until).toBe(1000 + 65 * R);
+    // A break late in the window still grants the full 45 s.
+    const late = spentOnBroken(spentOnLaunch(3, 0, R), 3, 95 * R, R);
+    expect(late.until).toBe(140 * R);
   });
-  it('ignores breaks after the 90 s cap and breaks of other waves', () => {
+  it('ignores breaks after the 105 s cap and breaks of other waves', () => {
     const c = spentOnLaunch(3, 0, R);
-    expect(spentOnBroken(c, 3, 95 * R, R)).toEqual(c);
+    expect(spentOnBroken(c, 3, 110 * R, R)).toEqual(c);
     expect(spentOnBroken(c, 1, 10 * R, R)).toEqual(c);
     expect(spentActive(NOT_SPENT, 0)).toBe(false);
   });

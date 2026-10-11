@@ -18,7 +18,7 @@ import { normaliseTreeTarget } from './economy';
 import { orderUnit } from './orders';
 import { findSpawnTile } from './placement';
 import { canPay, missingReason, pay, recomposeEffects, refund } from './players';
-import { buildingStats, unitStats } from './stats';
+import { buildingStats, researchCost, unitStats } from './stats';
 import type { Building, CommandResult, PlayerUnitId, ResearchId, TrainQueueItem, Unit, World } from './types';
 import { PLAYER, TICK_DT } from './types';
 
@@ -121,7 +121,7 @@ export function startResearch(world: World, buildingId: number, id: ResearchId):
   const r = researchBlockReason(world, b, id);
   if (r) return fail(r);
   const p = world.players[PLAYER];
-  const cost = RESEARCH[id].cost;
+  const cost = researchCost(world, PLAYER, id);
   if (!canPay(p, cost)) return fail(missingReason(p, cost) ?? 'Cannot afford');
   pay(p, cost);
   b.research = { id, progress: 0, total: RESEARCH[id].time, paid: { ...cost } };

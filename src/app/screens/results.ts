@@ -67,6 +67,7 @@ export function mountResults(app: AppCtx, result: BattleResult, post: PostBattle
     );
     if (post.runOver)
       crownsPanel.append(h('div', { class: `callout ${post.runWon ? '' : 'bad-callout'}` }, post.runWon ? 'The march is won.' : 'Resolve is spent. The march ends here.'));
+    for (const note of post.notes ?? []) crownsPanel.append(h('div', { class: 'callout res-note' }, glyph('people', 'inline-glyph'), note));
   } else if (quick) {
     crownsPanel.append(h('div', { class: 'tiny dim' }, 'Quick battle: no march is attached.'));
   }
@@ -104,7 +105,7 @@ export function mountResults(app: AppCtx, result: BattleResult, post: PostBattle
       (['grain', 'timber', 'ember'] as const).map((r) => h('span', { class: `cost cost-${r}` }, glyph(RESOURCE_GLYPH[r]), String(Math.round(st.gathered[r])))),
     ),
     result.survivors.length && outcome !== 'defeat'
-      ? h('div', { class: 'small muted', style: 'margin-top:.4rem' }, `${plural(result.survivors.length, 'veteran')} survived the field.`)
+      ? h('div', { class: 'small muted', style: 'margin-top:.4rem' }, `${plural(result.survivors.length, 'soldier')} survived the field.`)
       : null,
   );
 

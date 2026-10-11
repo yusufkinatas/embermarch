@@ -101,18 +101,30 @@ export function runHeader(app: AppCtx, opts: { onQuit?: () => void } = {}): RunH
     }
     const draftGroup = h('div', { class: 'rh-group' }, h('span', { class: 'label-caps' }, 'Drafts'), drafts);
 
-    const ret = h('div', { class: 'rh-tray' });
-    const all = [...run.retinue.map((u) => ({ u, sell: false })), ...run.sellswords.map((u) => ({ u, sell: true }))];
-    if (all.length === 0) ret.appendChild(h('span', { class: 'rh-empty' }, 'none'));
-    const shown = all.slice(0, 5);
-    for (const { u, sell } of shown) {
-      const p = portrait(u.type, { size: 'sm', rank: u.rank });
-      if (sell) p.classList.add('sellsword');
-      ret.appendChild(p);
-    }
-    if (all.length > shown.length) ret.appendChild(h('span', { class: 'chip' }, `+${all.length - shown.length}`));
-    const retGroup = h('div', { class: 'rh-group' }, h('span', { class: 'label-caps' }, `Retinue · ${retinuePop(run)} pop`), ret);
+    // Retinue (veterans carried on) and Sellswords (hired for the next battle) are separate slots.
+    const tray = (units: RunState['retinue'], sell: boolean, max: number): HTMLElement => {
+      const t = h('div', { class: 'rh-tray' });
+      if (units.length === 0) t.appendChild(h('span', { class: 'rh-empty' }, 'none'));
+      for (const u of units.slice(0, max)) {
+        const p = portrait(u.type, { size: 'sm', rank: u.rank });
+        if (sell) p.classList.add('sellsword');
+        t.appendChild(p);
+      }
+      if (units.length > max) t.appendChild(h('span', { class: 'chip' }, `+${units.length - max}`));
+      return t;
+    };
+    const selling = run.sellswords.length > 0;
+    const retGroup = h(
+      'div',
+      { class: 'rh-group rh-retinue' },
+      h('span', { class: 'label-caps' }, `Retinue · ${retinuePop(run)} pop`),
+      tray(run.retinue, false, selling ? 3 : 5),
+    );
     app.tooltips.attach(retGroup, () => retinueTooltip(run));
+    const sellGroup = selling
+      ? h('div', { class: 'rh-group rh-sellswords' }, h('span', { class: 'label-caps' }, `Sellswords · ${run.sellswords.length}`), tray(run.sellswords, true, 3))
+      : null;
+    if (sellGroup) app.tooltips.attach(sellGroup, () => sellswordTooltip(run));
 
     const settingsBtn = h('button', { class: 'btn ghost icon-only', 'aria-label': 'Settings', onclick: () => app.openSettings() }, glyph('gear'));
     app.tooltips.attach(settingsBtn, 'Settings');
@@ -144,6 +156,8 @@ export function runHeader(app: AppCtx, opts: { onQuit?: () => void } = {}): RunH
       draftGroup,
       h('span', { class: 'rh-sep' }),
       retGroup,
+      sellGroup ? h('span', { class: 'rh-sep' }) : null,
+      sellGroup,
       h('span', { class: 'spacer' }),
       h('div', { class: 'rh-actions' }, settingsBtn, quitBtn),
     );
@@ -156,9 +170,16 @@ function retinueTooltip(run: RunState): Child {
   const rows: Child[] = [ttTitle('Retinue'), ttSub(`${retinuePop(run)} pop carried`)];
   if (run.retinue.length === 0) rows.push(h('div', { class: 'muted' }, 'No veterans march with you yet. Survivors of a victory or a Retreat may join.'));
   for (const u of run.retinue) rows.push(h('div', null, `${unitName(u.type)} · ${rankName(u.rank)} · ${u.kills} kills`));
-  if (run.sellswords.length) {
-    rows.push(ttRule(), ttSub('Sellswords (next battle)'));
-    for (const u of run.sellswords) rows.push(h('div', null, `${unitName(u.type)} · ${rankName(u.rank)}`));
-  }
+  return rows;
+}
+
+function sellswordTooltip(run: RunState): Child {
+  const rows: Child[] = [
+    ttTitle(`Sellswords · ${run.sellswords.length}`),
+    ttSub('Fight in the next battle only'),
+    h('div', { class: 'muted' }, 'They take the field on top of the Retinue cap. Survivors may then join your Retinue.'),
+    ttRule(),
+  ];
+  for (const u of run.sellswords) rows.push(h('div', null, `${unitName(u.type)} · ${rankName(u.rank)}`));
   return rows;
 }

@@ -55,6 +55,20 @@ export function makeUnits(type: PlayerUnitId, count: number, rank: number): Carr
   return Array.from({ length: count }, () => ({ type, rank: r, kills: killsForRank(r) }));
 }
 
+/** English plural of a unit name ("Bowman" → "Bowmen", "Ashpike" → "Ashpikes"). */
+export function pluralName(name: string): string {
+  if (/man$/.test(name)) return `${name.slice(0, -3)}men`;
+  if (/s$/.test(name)) return name;
+  return `${name}s`;
+}
+
+/** "2 Rank I Ashpikes", "1 Recruit Courser". */
+export function unitsLabel(type: PlayerUnitId, count: number, rank: number): string {
+  const name = UNITS[type].name;
+  const r = clampRank(rank);
+  return `${count} ${r > 0 ? `Rank ${['', 'I', 'II', 'III'][r]}` : 'Recruit'} ${count === 1 ? name : pluralName(name)}`;
+}
+
 export function unitPop(type: PlayerUnitId): number {
   return UNITS[type].pop;
 }

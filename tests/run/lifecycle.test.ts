@@ -11,6 +11,7 @@ import {
   loadMeta,
   loadRun,
   reachableNodes,
+  recordLastStands,
   resolveInterruptedBattle,
   retinueCap,
   saveMeta,
@@ -342,3 +343,66 @@ describe('Retinue (§B)', () => {
     expect(b.run.rewardQueue.map((s) => s.kind)).toEqual(['boon']);
   });
 });
+
+describe('boss Last Stands spent before quitting (§B Autosave)', () => {
+  beforeEach(() => useMemoryStorage());
+
+  const atBoss = () => {
+    const { run, meta } = freshRun();
+    forceNode(run, meta, 'boss');
+    startBattle(run, meta, 'muster_hall');
+    return { run, meta };
+  };
+
+  it('Continue charges 1 + the recorded Last Stands: 3 Resolve, 2 spent → 0 and the run is lost', () => {
+    const { run, meta } = atBoss();
+    expect(run.bossLastStandsUsed).toBe(0);
+    recordLastStands(run, 1);
+    recordLastStands(run, 2);
+    expect(run.bossLastStandsUsed).toBe(2);
+    expect(loadRun()?.bossLastStandsUsed).toBe(2); // saved as it rises
+    const msg = resolveInterruptedBattle(run, meta);
+    expect(run.resolve).toBe(0);
+    expect(run.over).toBe('lost');
+    expect(msg).toMatch(/−3 Resolve/);
+  });
+
+  it('with nothing recorded, an abandoned boss battle costs exactly 1', () => {
+    const { run, meta } = atBoss();
+    resolveInterruptedBattle(run, meta);
+    expect(run.resolve).toBe(2);
+    expect(run.over).toBeNull();
+    expect(run.bossLastStandsUsed).toBe(0);
+  });
+
+  it('records only rising counts, only in a boss battle in progress', () => {
+    const { run, meta } = atBoss();
+    recordLastStands(run, 1);
+    recordLastStands(run, 0);
+    expect(run.bossLastStandsUsed).toBe(1);
+    run.battleInProgress = false;
+    recordLastStands(run, 2);
+    expect(run.bossLastStandsUsed).toBe(1);
+    const other = freshRun({ seed: 9 });
+    forceNode(other.run, other.meta, 'battle');
+    startBattle(other.run, other.meta, 'muster_hall');
+    recordLastStands(other.run, 1);
+    expect(other.run.bossLastStandsUsed).toBe(0);
+    expect(meta.stats.runs).toBeGreaterThan(0);
+  });
+
+  it('finishBattle pays result.lastStandsUsed once and resets the field; startBattle resets it too', () => {
+    const { run, meta } = atBoss();
+    recordLastStands(run, 1);
+    finishBattle(run, meta, mkResult({ outcome: 'victory', objective: 'boss', depth: 7, lastStandsUsed: 1, regentSlain: true }));
+    expect(run.resolve).toBe(2);
+    expect(run.over).toBe('won');
+    expect(run.bossLastStandsUsed).toBe(0);
+
+    const again = atBoss();
+    again.run.bossLastStandsUsed = 2; // stale value from an older save
+    startBattle(again.run, again.meta, 'muster_hall');
+    expect(again.run.bossLastStandsUsed).toBe(0);
+  });
+});
+

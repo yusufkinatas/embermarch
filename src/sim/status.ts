@@ -72,7 +72,7 @@ function tickBurns(world: World, u: Unit): void {
   for (const b of u.burns) {
     const dt = Math.min(TICK_DT, b.remaining);
     b.remaining -= TICK_DT;
-    if (dt > 0 && u.alive) dealTrueDamage(world, u, b.dps * dt, b.applierId);
+    if (dt > 0 && u.alive) dealTrueDamage(world, u, b.dps * dt, b.applierId, b.applierOwner);
   }
   if (u.alive) u.burns = u.burns.filter((b) => b.remaining > 1e-9);
   else u.burns.length = 0;

@@ -44,7 +44,7 @@ function isQuickBattle(setup: BattleSetup): boolean {
 export function quitCostShort(setup: BattleSetup): string {
   if (isQuickBattle(setup)) return 'A quick battle: no march is at stake.';
   return setup.isBoss || setup.objective === 'boss'
-    ? 'Your run is saved. Continuing restarts this battle at −1 Resolve.'
+    ? 'Your run is saved. Continuing restarts this battle at −1 Resolve, plus any Last Stands already spent.'
     : 'Your run is saved. Continuing counts as a Retreat: −1 Resolve.';
 }
 
@@ -52,7 +52,7 @@ export function quitCostShort(setup: BattleSetup): string {
 export function quitCostText(setup: BattleSetup): string {
   if (isQuickBattle(setup)) return 'This is a quick battle with no march attached. Quitting simply returns to the title.';
   if (setup.isBoss || setup.objective === 'boss') {
-    return 'When you continue, this battle restarts with the same seed at −1 Resolve. At 0 Resolve the run ends.';
+    return 'When you continue, this battle restarts with the same seed at −1 Resolve, plus 1 for each Last Stand already spent. At 0 Resolve the run ends.';
   }
   return 'When you continue, this battle counts as a Retreat: −1 Resolve, no plundered Crowns, and your Retinue as it was when you entered.';
 }

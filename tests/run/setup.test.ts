@@ -97,6 +97,27 @@ describe('startBattle → BattleSetup', () => {
     expect(setupFor({ tier: 2 }).setup.tier).toBe(2);
   });
 
+  it('first march: the start node has waves ×0.85 in the first 3 runs of a profile, on top of Thornbound', () => {
+    const at = (profileRunIndex: number, tier = 0) => {
+      const meta = metaWith();
+      meta.tierUnlocked = 3;
+      const { run } = freshRun({ meta, tier });
+      run.profileRunIndex = profileRunIndex;
+      enterNode(run, meta, 'start');
+      return startBattle(run, meta, 'muster_hall').waveMult;
+    };
+    for (const i of [0, 1, 2]) expect(at(i)).toBeCloseTo(0.85);
+    for (const i of [3, 4, 10]) expect(at(i)).toBe(1);
+    expect(at(0, 1)).toBeCloseTo(1.1 * 0.85);
+    expect(at(5, 1)).toBeCloseTo(1.1);
+    // Any other node keeps the normal multiplier, even in the first run.
+    const meta = metaWith();
+    const { run } = freshRun({ meta });
+    expect(run.profileRunIndex).toBe(0);
+    forceNode(run, meta, 'battle', { battle: { objective: 'raze', depth: 2 } });
+    expect(startBattle(run, meta, 'muster_hall').waveMult).toBe(1);
+  });
+
   it('Baggage Train carries 50% of unspent (max 250 each, at least +75 Ember) into bonusRes', () => {
     const meta = metaWith();
     const { run } = freshRun({ meta });

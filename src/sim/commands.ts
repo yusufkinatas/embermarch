@@ -183,6 +183,15 @@ function smart(world: World, cmd: Extract<Command, { type: 'smart' }>): CommandR
   return ok;
 }
 
+/**
+ * Shift-build / Shift-repair (AoE2 style, GDD §O): a build queues only behind a current build order
+ * or a non-empty queue. A gathering, moving or idle Tiller starts it now; its gather job is kept
+ * (directCommand keepJob) and resumed once the work is done.
+ */
+function queueBuild(u: Unit, queue: boolean | undefined): boolean {
+  return !!queue && (u.order.type === 'build' || u.queue.length > 0);
+}
+
 function build(world: World, cmd: Extract<Command, { type: 'build' }>): CommandResult {
   const p = world.players[PLAYER];
   const def = BUILDINGS[cmd.building];
@@ -204,7 +213,7 @@ function build(world: World, cmd: Extract<Command, { type: 'build' }>): CommandR
   emit(world, { t: 'placed', id: b.id, type: b.type, owner: PLAYER });
   for (const u of tillers) {
     directCommand(world, u, true);
-    orderUnit(world, u, { type: 'build', buildingId: b.id }, !!cmd.queue);
+    orderUnit(world, u, { type: 'build', buildingId: b.id }, queueBuild(u, cmd.queue));
   }
   emit(world, { t: 'command', kind: 'build', x: b.x, y: b.y, targetId: b.id });
   return ok;
@@ -277,7 +286,7 @@ export function issueCommandImpl(world: World, cmd: Command): CommandResult {
       if (!tillers.length) return fail('Select Tillers to repair');
       for (const u of tillers) {
         directCommand(world, u, true);
-        orderUnit(world, u, { type: 'build', buildingId: b.id }, !!cmd.queue);
+        orderUnit(world, u, { type: 'build', buildingId: b.id }, queueBuild(u, cmd.queue));
       }
       emit(world, { t: 'command', kind: 'build', x: b.x, y: b.y, targetId: b.id });
       return ok;

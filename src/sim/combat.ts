@@ -24,7 +24,7 @@ import { onTillerDamaged } from './economy';
 import { lastStandAvailable, triggerLastStand } from './abilities';
 import { buildingStats, hasFlag, unitStats } from './stats';
 import { isEntitySeen, isEntityVisible } from './vision';
-import type { Building, DamagePacket, Entity, Owner, Projectile, Unit, World } from './types';
+import type { BurnInstance, Building, DamagePacket, Entity, Owner, Projectile, Unit, World } from './types';
 import { PLAYER } from './types';
 
 // ---------------------------------------------------------------------------
@@ -138,6 +138,8 @@ interface DamageOpts {
   hitEvent: boolean;
   /** Counter multiplier for the popup (1 = none). */
   mult: number;
+  /** Owner of the attacker, for kill credit when the attacker died before this landed (arrows, burns). */
+  ownerHint?: Owner;
 }
 
 function popupFor(world: World, attackerId: number, mult: number): 'counter' | 'resisted' | null {
@@ -172,6 +174,10 @@ function underAttackAlerts(world: World, target: Entity, attacker: Entity | unde
   }
 }
 
+function wonThisTick(world: World): boolean {
+  return core(world).encounterOn && encounter.victoryConditionMet(world);
+}
+
 /** Shared HP reduction: hit event, bookkeeping, hooks, Last Stand interception, death. */
 function damageEntity(world: World, target: Entity, amount: number, attackerId: number, opts: DamageOpts): number {
   if (!target.alive || target.kind === 'resource' || amount <= 0) return 0;
@@ -202,17 +208,19 @@ function damageEntity(world: World, target: Entity, amount: number, attackerId: 
   }
   if (core(world).encounterOn) encounter.onEntityDamaged(world, target, attackerId, amount);
   if (target.hp <= 0 && target.alive) {
-    if (target.kind === 'building' && target.id === world.hearthId && lastStandAvailable(world)) {
+    // Last Stand, unless the battle is already won this tick (the Regent fell first): no Resolve is
+    // spent and the end-of-tick check declares the victory.
+    if (target.kind === 'building' && target.id === world.hearthId && lastStandAvailable(world) && !wonThisTick(world)) {
       triggerLastStand(world, target);
       return amount;
     }
-    killEntity(world, target, attackerId);
+    killEntity(world, target, attackerId, opts.ownerHint !== undefined ? { killerOwner: opts.ownerHint } : undefined);
   }
   return amount;
 }
 
 /** Splash targets: entities owned by the primary target's owner within radius of its center. */
-function applySplash(world: World, attackerId: number, primary: Entity, packet: DamagePacket): void {
+function applySplash(world: World, attackerId: number, primary: Entity, packet: DamagePacket, ownerHint?: Owner): void {
   const s = packet.splash;
   if (!s || s.radius <= 0) return;
   const c = centerOf(primary);
@@ -238,25 +246,26 @@ function applySplash(world: World, attackerId: number, primary: Entity, packet: 
         : pointRectDist(c.x, c.y, (e as Building).tx, (e as Building).ty, (e as Building).w, (e as Building).h);
     const f = 1 - (1 - s.edge) * Math.min(1, d / s.radius);
     const dmg = armorDamage(packet.raw * f, armorOf(world, e));
-    damageEntity(world, e, dmg, attackerId, { hitEvent: true, mult: 1 });
+    damageEntity(world, e, dmg, attackerId, { hitEvent: true, mult: 1, ownerHint });
   }
 }
 
 /**
  * Apply a packet to a target: armor (dmg = max(1, round(raw*10/(10+armor)))), burn, splash,
  * hit event + popups, lastDamaged bookkeeping, encounter.onEntityDamaged, death via killEntity.
- * Returns damage dealt to the primary target.
+ * Returns damage dealt to the primary target. `ownerHint`: the attacker's owner (projectiles pass it,
+ * so a kill still counts when the shooter died before impact).
  */
-export function applyPacket(world: World, attackerId: number, target: Entity, packet: DamagePacket): number {
+export function applyPacket(world: World, attackerId: number, target: Entity, packet: DamagePacket, ownerHint?: Owner): number {
   if (!target.alive || target.kind === 'resource') return 0;
   if (packet.unitsOnly && target.kind !== 'unit') return 0;
   if (packet.structuresOnly && target.kind === 'unit' && target.cls !== 'boss') return 0;
   const dmg = armorDamage(packet.raw, armorOf(world, target));
-  const dealt = damageEntity(world, target, dmg, attackerId, { hitEvent: true, mult: packet.mult });
+  const dealt = damageEntity(world, target, dmg, attackerId, { hitEvent: true, mult: packet.mult, ownerHint });
   if (packet.burn && target.kind === 'unit' && target.alive) {
-    applyBurn(world, target, attackerId, packet.burn.dps, packet.burn.duration);
+    applyBurn(world, target, attackerId, packet.burn.dps, packet.burn.duration, ownerHint);
   }
-  applySplash(world, attackerId, target, packet);
+  applySplash(world, attackerId, target, packet, ownerHint);
   return dealt;
 }
 
@@ -264,14 +273,14 @@ export function applyPacket(world: World, attackerId: number, target: Entity, pa
  * Ability / scripted damage (boss abilities, Last Stand, Firepot impact). Armor applies; counters do not.
  * Returns damage dealt.
  */
-export function dealAbilityDamage(world: World, target: Entity, raw: number, sourceId: number): number {
+export function dealAbilityDamage(world: World, target: Entity, raw: number, sourceId: number, ownerHint?: Owner): number {
   if (!target.alive || target.kind === 'resource') return 0;
-  return damageEntity(world, target, armorDamage(raw, armorOf(world, target)), sourceId, { hitEvent: true, mult: 1 });
+  return damageEntity(world, target, armorDamage(raw, armorOf(world, target)), sourceId, { hitEvent: true, mult: 1, ownerHint });
 }
 
 /** True damage that ignores armor (burn ticks, wither). */
-export function dealTrueDamage(world: World, target: Entity, amount: number, sourceId: number): number {
-  return damageEntity(world, target, amount, sourceId, { hitEvent: false, mult: 1 });
+export function dealTrueDamage(world: World, target: Entity, amount: number, sourceId: number, ownerHint?: Owner): number {
+  return damageEntity(world, target, amount, sourceId, { hitEvent: false, mult: 1, ownerHint });
 }
 
 function burnDisabled(world: World, a: Owner, b: Owner): boolean {
@@ -279,16 +288,20 @@ function burnDisabled(world: World, a: Owner, b: Owner): boolean {
 }
 
 /** Add/refresh a burn instance (max 3 appliers per target). Units only. */
-export function applyBurn(world: World, target: Unit, applierId: number, dps: number, duration: number): void {
+export function applyBurn(world: World, target: Unit, applierId: number, dps: number, duration: number, ownerHint?: Owner): void {
   if (target.kind !== 'unit' || !target.alive || dps <= 0 || duration <= 0) return;
   const applier = applierId ? world.entities.get(applierId) : undefined;
-  if (burnDisabled(world, target.owner, applier ? applier.owner : target.owner)) return;
+  const applierOwner = applier ? applier.owner : ownerHint;
+  if (burnDisabled(world, target.owner, applierOwner ?? target.owner)) return;
   const own = target.burns.find((b) => b.applierId === applierId);
   if (own) {
     own.remaining = Math.max(own.remaining, duration);
     own.dps = Math.max(own.dps, dps);
+    if (applierOwner !== undefined) own.applierOwner = applierOwner;
   } else if (target.burns.length < BURN.maxInstances) {
-    target.burns.push({ applierId, dps, remaining: duration });
+    const inst: BurnInstance = { applierId, dps, remaining: duration };
+    if (applierOwner !== undefined) inst.applierOwner = applierOwner;
+    target.burns.push(inst);
   } else {
     let weakest = target.burns[0];
     for (const b of target.burns) if (b.remaining < weakest.remaining) weakest = b;
@@ -296,6 +309,7 @@ export function applyBurn(world: World, target: Unit, applierId: number, dps: nu
     weakest.applierId = applierId;
     weakest.dps = dps;
     weakest.remaining = duration;
+    weakest.applierOwner = applierOwner;
   }
   emit(world, { t: 'burn', id: target.id });
 }
@@ -324,9 +338,9 @@ export function groundImpact(world: World, p: Projectile): void {
         ? Math.max(0, Math.hypot(e.x - p.tx, e.y - p.ty) - e.radius)
         : pointRectDist(p.tx, p.ty, (e as Building).tx, (e as Building).ty, (e as Building).w, (e as Building).h);
     const f = 1 - (1 - s.edge) * Math.min(1, d / Math.max(1e-6, s.radius));
-    dealAbilityDamage(world, e, p.packet.raw * f, p.sourceId);
+    dealAbilityDamage(world, e, p.packet.raw * f, p.sourceId, p.owner);
     if (p.packet.burn && e.kind === 'unit' && e.alive) {
-      applyBurn(world, e, p.sourceId, p.packet.burn.dps, p.packet.burn.duration);
+      applyBurn(world, e, p.sourceId, p.packet.burn.dps, p.packet.burn.duration, p.owner);
     }
   }
 }

@@ -3,12 +3,13 @@
  * rank, dynamic buffs, popups, burn, splash, kill credit / rank-ups.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { armorDamage } from '../../src/data/balance';
+import { INCOME, armorDamage } from '../../src/data/balance';
 import { BOONS } from '../../src/data/boons';
 import { MODIFIERS } from '../../src/data/modifiers';
 import { RESEARCH } from '../../src/data/research';
 import { applyBurn, applyPacket, canAttack, computeDamagePacket, dealAbilityDamage } from '../../src/sim/combat';
-import { spawnBuilding, spawnUnit } from '../../src/sim/entities';
+import { killEntity, spawnBuilding, spawnUnit } from '../../src/sim/entities';
+import { orderUnit } from '../../src/sim/orders';
 import { drainEvents } from '../../src/sim/world';
 import type { Effect, Entity, GameEvent, Unit, UnitId, World } from '../../src/sim/types';
 import { ENEMY, PLAYER } from '../../src/sim/types';
@@ -262,5 +263,64 @@ describe('applyPacket side effects', () => {
     t2.untargetable = true;
     expect(canAttack(w, a, t2)).toBe(false);
     expect(canAttack(w, pu(w, 'lampbearer', 33, 32), t2)).toBe(false);
+  });
+});
+
+describe('kill credit when the attacker died before its hit landed', () => {
+  it('an arrow from a dead Bowman still counts the kill and Spoils of the Wake', () => {
+    const w = arena(BOONS.spoils_of_the_wake.effects);
+    const p = w.players[PLAYER];
+    const bow = pu(w, 'bowman', 20, 30);
+    const foe = eu(w, 'thornling', 25, 30);
+    foe.order = { type: 'hold' };
+    foe.hp = 1;
+    orderUnit(w, bow, { type: 'attack', targetId: foe.id });
+    for (let i = 0; i < 60 && !w.projectiles.some((pr) => pr.alive && pr.sourceId === bow.id); i++) step(w, 0.05);
+    expect(w.projectiles.some((pr) => pr.alive && pr.sourceId === bow.id)).toBe(true);
+    expect(foe.alive).toBe(true);
+    killEntity(w, bow, foe.id);
+    step(w, 0.05);
+    expect(w.entities.has(bow.id)).toBe(false);
+    const kills0 = p.stats.kills;
+    const grain0 = p.res.grain;
+    step(w, 1.5);
+    expect(foe.alive).toBe(false);
+    expect(p.stats.kills).toBe(kills0 + 1);
+    expect(p.res.grain - grain0).toBe(INCOME.spoilsPerKill.grain);
+  });
+
+  it('a burn tick from a dead Brandbow still counts the kill and Spoils of the Wake', () => {
+    const w = arena(BOONS.spoils_of_the_wake.effects);
+    const p = w.players[PLAYER];
+    const bb = pu(w, 'brandbow', 20, 30);
+    const foe = eu(w, 'briarguard', 25, 30);
+    foe.order = { type: 'hold' };
+    orderUnit(w, bb, { type: 'attack', targetId: foe.id });
+    for (let i = 0; i < 100 && foe.burns.length === 0; i++) step(w, 0.05);
+    expect(foe.burns.length).toBeGreaterThan(0);
+    expect(foe.burns[0].applierOwner).toBe(PLAYER);
+    killEntity(w, bb, foe.id);
+    for (const pr of w.projectiles) pr.alive = false; // only the burn may finish it
+    step(w, 0.05);
+    expect(w.entities.has(bb.id)).toBe(false);
+    expect(foe.alive).toBe(true);
+    foe.hp = 0.3;
+    const kills0 = p.stats.kills;
+    const grain0 = p.res.grain;
+    step(w, 1);
+    expect(foe.alive).toBe(false);
+    expect(p.stats.kills).toBe(kills0 + 1);
+    expect(p.res.grain - grain0).toBe(INCOME.spoilsPerKill.grain);
+  });
+
+  it('rank-ups still need a live killer', () => {
+    const w = arena();
+    const bow = pu(w, 'bowman', 20, 30);
+    bow.kills = 2;
+    const foe = eu(w, 'thornling', 25, 30);
+    foe.hp = 1;
+    applyPacket(w, bow.id, foe, computeDamagePacket(w, bow, foe), PLAYER);
+    expect(bow.kills).toBe(3);
+    expect(bow.rank).toBe(1);
   });
 });

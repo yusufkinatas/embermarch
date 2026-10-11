@@ -379,6 +379,8 @@ export interface BurnInstance {
   applierId: number;
   dps: number;
   remaining: number;
+  /** Owner of the applier, kept so a burn tick from a dead applier still credits the kill. */
+  applierOwner?: Owner;
 }
 
 export interface Buff {
@@ -495,6 +497,8 @@ export interface Unit extends EntityBase {
   buffs: Buff[];
   /** True if this unit came from the Retinue/Sellswords. */
   carried: boolean;
+  /** The free scout Courser every battle starts with: carried as Retinue only from Rank I. */
+  free?: boolean;
   /** Enemy-AI state (owned by the encounter module); null for player units. */
   ai: EnemyUnitAI | null;
 }

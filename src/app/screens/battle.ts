@@ -12,10 +12,23 @@ export function mountBattle(app: AppCtx, setup: BattleSetup, quick: boolean): Sc
   const el = h('div', { class: 'battle-root' });
   let controller: BattleControllerLike | null = null;
   let ended = false;
+  /** Set once the battle reported its result; finishBattle then accounts for Last Stands itself. */
+  let finished = false;
+  let standsTimer = 0;
+
+  // Boss battle: keep the run's count of spent Last Stands current, so quitting and continuing
+  // charges them (the sim spends Resolve only inside the battle world).
+  const recordStands = (): void => {
+    const run = app.run;
+    if (finished || quick || !setup.isBoss || !run || !run.battleInProgress || !controller) return;
+    const used = controller.world.lastStandsUsed;
+    if (used > (run.bossLastStandsUsed ?? 0)) app.guard('recordLastStands', () => app.api.recordLastStands(run, used));
+  };
 
   const onEnd = (result: BattleResult): void => {
     if (ended) return;
     ended = true;
+    finished = true;
     // Leave the controller's frame before tearing it down.
     window.setTimeout(() => {
       let post: PostBattle | null = null;
@@ -81,6 +94,7 @@ export function mountBattle(app: AppCtx, setup: BattleSetup, quick: boolean): Sc
           muted: app.meta.settings.muted,
         });
         controller.start();
+        if (!quick && setup.isBoss) standsTimer = window.setInterval(recordStands, 500);
       } catch (err) {
         try {
           controller?.destroy();
@@ -92,6 +106,12 @@ export function mountBattle(app: AppCtx, setup: BattleSetup, quick: boolean): Sc
       }
     },
     destroy: () => {
+      if (standsTimer) window.clearInterval(standsTimer);
+      try {
+        recordStands(); // a Last Stand in the last half second before quitting still counts
+      } catch {
+        /* the world may already be torn down */
+      }
       try {
         controller?.destroy();
       } catch (err) {

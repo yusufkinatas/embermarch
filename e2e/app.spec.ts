@@ -170,3 +170,81 @@ test('quick battle URL param mounts the battle and returns to Title', async ({ p
   await screenIs(page, 'title');
   expect(errors).toEqual([]);
 });
+
+/** Dispatch a cancelable contextmenu event at the first element matching `sel`; true if the app prevented it. */
+async function contextMenuPrevented(page: Page, sel: string): Promise<boolean> {
+  return page.evaluate((s) => {
+    const el = document.querySelector(s);
+    if (!el) throw new Error(`no element ${s}`);
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+    el.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  }, sel);
+}
+
+test('no browser context menu on the app screens, except in text fields', async ({ page }) => {
+  const errors = collectErrors(page);
+  await freshProfile(page, '?seed=4004');
+  await screenIs(page, 'title');
+  expect(await contextMenuPrevented(page, '.title-scr')).toBe(true);
+  await page.getByRole('button', { name: /New Run/i }).click();
+  await screenIs(page, 'setup');
+  expect(await contextMenuPrevented(page, '.setup-scr')).toBe(true);
+  expect(await contextMenuPrevented(page, '.seed-input')).toBe(false);
+  await page.getByRole('button', { name: /Begin the March/i }).click();
+  await screenIs(page, 'map');
+  expect(await contextMenuPrevented(page, '.map-svg')).toBe(true);
+  await page.locator('.rn.clickable').first().click();
+  await screenIs(page, 'briefing');
+  expect(await contextMenuPrevented(page, '.briefing-scr')).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('a battle briefing is a preview: Back keeps every road open, Begin Battle commits', async ({ page }) => {
+  const errors = collectErrors(page);
+  await freshProfile(page, '?seed=4004');
+  await screenIs(page, 'title');
+  await page.evaluate(() => ((window as GameWindow).__game!.newRun as (o: object) => unknown)({ seed: 4004 }));
+  await screenIs(page, 'map');
+  await page.locator('.rn.clickable').first().click();
+  await screenIs(page, 'briefing');
+  await page.getByRole('button', { name: /Begin Battle/i }).click();
+  await screenIs(page, 'battle');
+  await page.waitForFunction(() => typeof (window as GameWindow).__game?.win === 'function', undefined, { timeout: 15_000 });
+  await page.evaluate(() => ((window as GameWindow).__game!.win as () => void)());
+  await screenIs(page, 'results', 20_000);
+  for (let i = 0; i < 6 && (await page.evaluate(() => (window as GameWindow).__game!.screen!())) !== 'map'; i++) {
+    const s = await page.evaluate(() => (window as GameWindow).__game!.screen!());
+    if (s === 'results') await page.getByRole('button', { name: /^Continue/i }).click();
+    else if (s === 'reward') await page.getByRole('button', { name: /Skip/i }).click();
+    else if (s === 'retinue') await page.getByRole('button', { name: /March on/i }).click();
+    await page.waitForTimeout(400);
+  }
+  await screenIs(page, 'map');
+
+  type RunLite = { currentNode: string; stats: { nodesVisited: number }; map: { columns: string[][]; nodes: Record<string, { type: string }> } };
+  const run = () => page.evaluate(() => ((window as GameWindow).__game!.run as () => RunLite)());
+  const before = await run();
+  const col2 = before.map.columns[1];
+  const a = col2.find((id) => before.map.nodes[id].type === 'battle')!;
+  const b = col2.find((id) => id !== a)!;
+  await page.locator(`.rn[data-node="${a}"]`).click();
+  await screenIs(page, 'briefing');
+  const previewed = await run();
+  expect(previewed.currentNode).toBe(before.currentNode);
+  expect(previewed.stats.nodesVisited).toBe(before.stats.nodesVisited);
+  await page.getByRole('button', { name: /^Back/i }).click();
+  await screenIs(page, 'map');
+  await expect(page.locator(`.rn[data-node="${b}"]`)).toHaveClass(/clickable/);
+  await page.locator(`.rn[data-node="${b}"] .rn-hit`).hover();
+  await expect(page.locator('.tooltip.show')).toContainText('Click to march here');
+
+  await page.locator(`.rn[data-node="${a}"]`).click();
+  await screenIs(page, 'briefing');
+  await page.getByRole('button', { name: /Begin Battle/i }).click();
+  await screenIs(page, 'battle');
+  const committed = await run();
+  expect(committed.currentNode).toBe(a);
+  expect(committed.stats.nodesVisited).toBe(before.stats.nodesVisited + 1);
+  expect(errors).toEqual([]);
+});

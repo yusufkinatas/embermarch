@@ -43,8 +43,14 @@ export function moveIntent(world: World, u: Unit, intent: MoveIntent | null): vo
     return;
   }
   if (u.move && sameIntent(u.move, intent)) return;
+  const uc = ucore(world, u);
+  // Nav gave up on this very point goal (it clears unit.move and leaves 'stuck'). Re-issuing it would
+  // only repeat the give-up every second, so the order would never end (GDD §F e: the unit goes idle).
+  // Keep the status for moveDone / moveFailed. Player units only: encounter re-orders its own units.
+  if (!u.move && u.moveStatus === 'stuck' && u.owner === PLAYER && intent.targetId === 0 && uc.lastPointGoal && sameIntent(uc.lastPointGoal, intent)) return;
   setMove(world, u, withCap(u, intent));
-  ucore(world, u).moveSetTick = world.tick;
+  uc.moveSetTick = world.tick;
+  uc.lastPointGoal = intent.targetId === 0 ? { ...intent } : null;
 }
 
 /** Move to a point (arrive within `range` of it). Uses the unit's group flow key when set. */

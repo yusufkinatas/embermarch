@@ -4,11 +4,11 @@
  * diffed writes).
  */
 import { getEncounterView } from '../../sim/encounter';
-import type { GameEvent, PlayerBuildingId, World } from '../../sim/types';
+import type { AlertKind, GameEvent, PlayerBuildingId, UnitId, World } from '../../sim/types';
 import { PLAYER } from '../../sim/types';
-import { AlertFeed, THREAT_KINDS, ThreatMarkers } from '../alerts';
+import { AlertFeed, LossNotices, THREAT_KINDS, ThreatMarkers, UNATTENDED_TEXT, UnattendedFoundations, type AlertItem } from '../alerts';
 import { h } from '../dom';
-import { normalizePct } from '../format';
+import { formatCountdown, normalizePct } from '../format';
 import type { HintDirector } from '../hints';
 import { AlertFeedView } from './alertFeed';
 import { BossBar } from './bossbar';
@@ -33,11 +33,27 @@ const SLOW_INTERVAL = 0.1;
 
 const MILITARY_BUILDINGS: ReadonlySet<PlayerBuildingId> = new Set<PlayerBuildingId>(['muster_hall', 'bowyard', 'paddock', 'siegeyard']);
 
-/** HUD scale for a viewport: 1 at 1280×720, growing to 1.3 at 1920×1080 and up. */
+/** Largest HUD scale (2560×1440 and up). */
+export const HUD_SCALE_MAX = 1.6;
+
+/** HUD scale for a viewport: 1 at 1280×720, growing with the viewport to 1.6 at 2560×1440 and up. */
 export function hudScale(w: number, hgt: number): number {
   const s = Math.min(w / 1280, hgt / 720);
-  return Math.max(0.85, Math.min(1.3, s));
+  return Math.max(0.85, Math.min(HUD_SCALE_MAX, s));
 }
+
+/** Default camera zoom for a viewport height: 1 up to 900 px, growing to 1.4 at 1260 px and up. */
+export function startZoom(viewH: number): number {
+  return Math.max(1, Math.min(1.4, viewH / 900));
+}
+
+/** Camera max zoom: tall viewports (2560×1440) may zoom in further. */
+export function maxZoomFor(viewH: number): number {
+  return viewH > 1200 ? 1.8 : 1.5;
+}
+
+/** The free scout Courser is reported lost even on screen during the opening (GDD §B scout). */
+const SCOUT_WINDOW = 120;
 
 export interface HudHooks {
   openMenu(): void;
@@ -72,6 +88,12 @@ export class Hud {
   private readonly callout: Callout;
   private slowAcc = SLOW_INTERVAL;
   private viewFailed = false;
+  private readonly topCenter: HTMLElement;
+  private readonly unattended = new UnattendedFoundations();
+  private readonly losses = new LossNotices();
+  private lossItem: AlertItem | null = null;
+  /** The free Courser(s) present at battle start (not carried Retinue). */
+  private readonly scoutIds = new Set<number>();
   /** Near-Hearth Thickets at battle start (grainplot hint). */
   private readonly nearThickets: { ids: number[]; total: number };
 
@@ -92,6 +114,7 @@ export class Hud {
     this.arrows = new EdgeArrows(this.el, c, this.markers);
     this.top = new TopBar(this.el, c, { openMenu: () => hooks.openMenu() });
     const topCenter = h('div', 'bt-topcenter', this.el);
+    this.topCenter = topCenter;
     this.horn = new WaveHorn(topCenter, c);
     this.boss = new BossBar(topCenter, c);
     this.coach = new CoachBox(topCenter, () => hooks.dismissHint());
@@ -116,6 +139,10 @@ export class Hud {
     this.el.appendChild(this.tooltip.el);
 
     this.nearThickets = this.collectNearThickets(ctx.world);
+    // The free scout (Unit.free, sim S10); a starting Courser that is not carried Retinue counts too.
+    for (const u of ctx.world.units) {
+      if (u.alive && u.owner === PLAYER && (u.free === true || (u.type === 'courser' && !u.carried))) this.scoutIds.add(u.id);
+    }
   }
 
   get context(): HudContext {
@@ -145,8 +172,10 @@ export class Hud {
     c.now = now;
     this.top.updateFast();
     this.arrows.update();
-    this.countdown.update(c.world.countdown, now, c.world.time);
-    this.paused.update(c.ui.paused && !menuOpen && c.world.outcome === 'ongoing');
+    const pausedNow = c.ui.paused && !menuOpen && c.world.outcome === 'ongoing';
+    this.countdown.update(c.world.countdown, now, c.world.time, c.ui.paused || menuOpen);
+    this.paused.update(pausedNow);
+    this.top.setPaused(pausedNow);
     this.wheel.setVisible(c.ui.showCounterWheel && !menuOpen);
     this.notice.update(now);
     this.callout.update(now, this.banner.visible);
@@ -179,9 +208,12 @@ export class Hud {
     this.groups.update();
     this.selection.update();
     this.card.update();
+    this.updateUnattended(now);
+    this.flushLosses(now);
     this.alertView.update();
     this.menu.update();
     this.updateMarkers();
+    this.arrows.setAvoid(this.topCenterRect());
     this.updateHints(now);
     this.tooltip.refresh();
   }
@@ -257,8 +289,83 @@ export class Hud {
       // Grace period: the waveBroken event can arrive before the view reports the Nest as Spent.
       const age = this.ctx.now - (m.since ?? 0);
       if (n && (!n.alive || !n.spent) && age > 2) this.markers.remove(m.key);
-      else if (n && n.spent) m.label = `Spent ${Math.ceil(n.spentRemaining)}s`;
+      else if (n && n.spent) m.label = `Spent ${formatCountdown(n.spentRemaining)} · ${this.tilesFromHearth(n.x, n.y)} tiles`;
     }
+  }
+
+  /** Whole tiles from the Hearth centre to a point (Spent marker distance). */
+  private tilesFromHearth(x: number, y: number): number {
+    const { world } = this.ctx;
+    const hearth = world.entities.get(world.hearthId);
+    const hx = hearth ? hearth.x : world.anchors.hearth.tx + 2;
+    const hy = hearth ? hearth.y : world.anchors.hearth.ty + 2;
+    return Math.round(Math.hypot(x - hx, y - hy));
+  }
+
+  /** Top-centre column (Horn, Spent ribbon, boss bar, coach) in HUD-local CSS px, or null when empty. */
+  private topCenterRect(): { x0: number; y0: number; x1: number; y1: number } | null {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    const base = this.el.getBoundingClientRect();
+    // Measure the visible pieces (the column itself spans the widest child, even if hidden).
+    for (const el of this.topCenter.querySelectorAll<HTMLElement>('.bt-horn, .bt-spent, .bt-boss, .bt-coach')) {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      x0 = Math.min(x0, r.left - base.left);
+      y0 = Math.min(y0, r.top - base.top);
+      x1 = Math.max(x1, r.right - base.left);
+      y1 = Math.max(y1, r.bottom - base.top);
+    }
+    return Number.isFinite(x0) ? { x0, y0, x1, y1 } : null;
+  }
+
+  /** Is a world point inside the visible playfield (between the top bar and the bottom panel)? */
+  private onScreen(x: number, y: number): boolean {
+    const cam = this.ctx.camera;
+    const p = cam.worldToScreen(x, y);
+    return p.x >= 0 && p.x <= cam.viewW && p.y >= cam.topInset && p.y <= cam.viewH - cam.bottomInset;
+  }
+
+  /** Minimap ping through the renderer's alert-ping path. */
+  private ping(x: number, y: number, kind: AlertKind): void {
+    try {
+      this.ctx.renderer.handleEvents([{ t: 'alert', kind, text: '', x, y }], this.ctx.world);
+    } catch {
+      /* pings are cosmetic */
+    }
+  }
+
+  /** Foundations nobody is building: one notice each after 15 s (Space jumps there). */
+  private updateUnattended(now: number): void {
+    const { world } = this.ctx;
+    if (world.outcome !== 'ongoing' || world.countdown > 0) return;
+    for (const b of this.unattended.update(world)) {
+      this.alerts.push({ kind: 'info', tone: 'warn', text: UNATTENDED_TEXT, x: b.x, y: b.y }, now);
+      this.ping(b.x, b.y, 'info');
+    }
+  }
+
+  /** A player soldier died: off-screen, or the free scout in the opening, becomes a "lost" notice. */
+  private onUnitDeath(id: number, type: UnitId, x: number, y: number, now: number): void {
+    const { world } = this.ctx;
+    if (world.outcome !== 'ongoing' || type === 'tiller' || type === 'warden') return;
+    const scout = this.scoutIds.has(id) || (type === 'courser' && world.time <= SCOUT_WINDOW);
+    this.scoutIds.delete(id);
+    if (!scout && this.onScreen(x, y)) return;
+    this.losses.record(type, x, y, now);
+  }
+
+  private flushLosses(now: number): void {
+    const u = this.losses.flush(now);
+    if (!u) return;
+    if (u.kind === 'update' && this.lossItem && this.alerts.items.includes(this.lossItem)) {
+      this.alerts.revise(this.lossItem, u, now);
+    } else {
+      this.lossItem = this.alerts.push({ kind: 'info', tone: 'danger', text: u.text, x: u.x, y: u.y }, now);
+    }
+    this.ping(u.x, u.y, 'under_attack');
   }
 
   /** Route drained sim events. `now` is real time. */
@@ -300,6 +407,9 @@ export class Hud {
         case 'trained':
           if (ev.type !== 'tiller') this.hints.signal('first_military');
           break;
+        case 'death':
+          if (ev.kind === 'unit' && ev.owner === PLAYER) this.onUnitDeath(ev.id, ev.type as UnitId, ev.x, ev.y, now);
+          break;
         case 'hit':
           if (ev.popup === 'counter') this.hints.signal('first_counter_popup');
           break;
@@ -316,5 +426,6 @@ export class Hud {
           break;
       }
     }
+    this.flushLosses(now);
   }
 }

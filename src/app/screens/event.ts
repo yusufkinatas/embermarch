@@ -3,11 +3,12 @@
  * text and Continue.
  */
 import type { AppCtx, ScreenHandle } from '../types';
-import type { EventView } from '../../run/types';
+import type { EventOutcome, EventView } from '../../run/types';
 import { h, setChildren } from '../dom';
 import { divider, glyph } from '../ui/glyphs';
 import { runHeader } from '../ui/header';
 import { plate } from '../ui/illustrations';
+import { outcomeGrants } from '../ui/cards';
 import { leaveIfOpen } from './common';
 
 export function mountEvent(app: AppCtx, ev: EventView): ScreenHandle {
@@ -15,7 +16,7 @@ export function mountEvent(app: AppCtx, ev: EventView): ScreenHandle {
   let chosen = false;
   const choicesEl = h('div', { class: 'event-choices' });
 
-  const showOutcome = (text: string): void => {
+  const showOutcome = (out: EventOutcome): void => {
     const cont = h(
       'button',
       {
@@ -29,7 +30,12 @@ export function mountEvent(app: AppCtx, ev: EventView): ScreenHandle {
       'Continue',
       glyph('next'),
     );
-    setChildren(choicesEl, h('div', { class: 'event-outcome' }, h('div', { class: 'eo-mark' }, glyph('scroll')), h('p', null, text)), h('div', { class: 'event-actions' }, cont));
+    setChildren(
+      choicesEl,
+      h('div', { class: 'event-outcome' }, h('div', { class: 'eo-mark' }, glyph('scroll')), h('p', null, out.text)),
+      outcomeGrants(out),
+      h('div', { class: 'event-actions' }, cont),
+    );
     requestAnimationFrame(() => cont.focus({ preventScroll: true }));
   };
 
@@ -51,7 +57,7 @@ export function mountEvent(app: AppCtx, ev: EventView): ScreenHandle {
         return;
       }
       header.update();
-      showOutcome(out.text);
+      showOutcome(out);
     });
     choicesEl.appendChild(btn);
   }

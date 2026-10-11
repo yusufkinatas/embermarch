@@ -2,6 +2,7 @@
  * Camp: Rest / Drill / Muster cards, then the outcome and Continue (Muster queues a Draft pick).
  */
 import type { AppCtx, ScreenHandle } from '../types';
+import type { EventOutcome } from '../../run/types';
 import { CAMP } from '../../data/balance';
 import { CAMP_TEXT } from '../../data/text';
 import { DRAFTS } from '../../data/drafts';
@@ -9,6 +10,7 @@ import { h, setChildren } from '../dom';
 import { divider, glyph, type GlyphName } from '../ui/glyphs';
 import { runHeader, resolvePips } from '../ui/header';
 import { plate } from '../ui/illustrations';
+import { outcomeGrants } from '../ui/cards';
 import { portrait, rankName, unitName } from '../ui/portraits';
 import { leaveIfOpen } from './common';
 
@@ -58,7 +60,7 @@ export function mountCamp(app: AppCtx): ScreenHandle {
   ];
 
   const area = h('div', { class: 'camp-row' });
-  const finish = (text: string): void => {
+  const finish = (out: EventOutcome): void => {
     const cont = h(
       'button',
       {
@@ -72,7 +74,12 @@ export function mountCamp(app: AppCtx): ScreenHandle {
       'Break camp',
       glyph('next'),
     );
-    setChildren(area, h('div', { class: 'event-outcome camp-outcome' }, h('div', { class: 'eo-mark' }, glyph('campfire')), h('p', null, text)), h('div', { class: 'event-actions' }, cont));
+    const grants = outcomeGrants(out);
+    setChildren(
+      area,
+      h('div', { class: 'camp-result' }, h('div', { class: 'event-outcome camp-outcome' }, h('div', { class: 'eo-mark' }, glyph('campfire')), h('p', null, out.text)), grants),
+      h('div', { class: 'event-actions' }, cont),
+    );
   };
 
   const resolved = app.guard('campOptions', () => app.api.campOptions(run, app.meta)) ?? [];
@@ -98,7 +105,7 @@ export function mountCamp(app: AppCtx): ScreenHandle {
         return;
       }
       header.update();
-      finish(out.text);
+      finish(out);
     };
     card.addEventListener('click', pick);
     card.addEventListener('keydown', (e) => {

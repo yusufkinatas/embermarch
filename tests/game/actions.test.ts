@@ -6,8 +6,8 @@ import { generateMap } from '../../src/mapgen';
 import { Camera } from '../../src/render/camera';
 import { quickBattleSetup } from '../../src/run';
 import { createWorld, stepWorld } from '../../src/sim/world';
-import type { BattleSetup, HouseId, Unit, World } from '../../src/sim/types';
-import { TICK_RATE } from '../../src/sim/types';
+import type { BattleSetup, Building, HouseId, Unit, World } from '../../src/sim/types';
+import { TICK_RATE, Terrain } from '../../src/sim/types';
 import { BattleActions, type ActionHost } from '../../src/game/actions';
 import { AlertFeed } from '../../src/game/alerts';
 import { HintDirector } from '../../src/game/hints';
@@ -48,6 +48,7 @@ function boot(house: HouseId = 'ardent', over: Partial<BattleSetup> = {}) {
   const notices: string[] = [];
   const played: SfxName[] = [];
   let menu = false;
+  let invalidations = 0;
   const hints = new HintDirector([], true);
   const host: ActionHost = {
     world,
@@ -68,9 +69,47 @@ function boot(house: HouseId = 'ardent', over: Partial<BattleSetup> = {}) {
     },
     ended: () => false,
     onMuteChanged() {},
+    invalidateHud: () => {
+      invalidations++;
+    },
   };
   const actions = new BattleActions(host);
-  return { world, ui, camera, actions, errors, notices, played, hints, menuOpen: () => menu };
+  return { world, ui, camera, actions, errors, notices, played, hints, menuOpen: () => menu, invalidations: () => invalidations };
+}
+
+/** First valid placement spot for a building around the Hearth (ghost re-checked via updatePlacement). */
+function findSpot(world: World, ui: ReturnType<typeof createBattleUIState>, actions: BattleActions, from = 4, avoid: { x: number; y: number }[] = []): { x: number; y: number } | null {
+  const hearth = world.entities.get(world.hearthId)!;
+  for (let r = from; r < 14; r++) {
+    for (let a = 0; a < 24; a++) {
+      const x = hearth.x + Math.cos((a / 24) * Math.PI * 2) * r;
+      const y = hearth.y + Math.sin((a / 24) * Math.PI * 2) * r;
+      if (avoid.some((p) => Math.hypot(p.x - x, p.y - y) < 5)) continue;
+      actions.updatePlacement(x, y);
+      if (ui.placement?.ok) return { x, y };
+    }
+  }
+  return null;
+}
+
+/** A grass tile next to a forest tile with Timber, plus that tree tile (explored, near the Hearth). */
+function forestEdge(world: World): { tree: number; tx: number; ty: number; gx: number; gy: number; far: { x: number; y: number } } {
+  const { map } = world;
+  const hearth = world.entities.get(world.hearthId)!;
+  let best: { tree: number; tx: number; ty: number; gx: number; gy: number; d: number } | null = null;
+  for (let ty = 1; ty < map.h - 1; ty++) {
+    for (let tx = 1; tx < map.w - 1; tx++) {
+      const tile = ty * map.w + tx;
+      if (map.terrain[tile] !== Terrain.Forest || map.treeAmount[tile] <= 0) continue;
+      // Grass directly east, with open grass for 3 more tiles (no other forest within reach of the click).
+      const open = [1, 2, 3, 4].every((k) => map.terrain[ty * map.w + tx + k] === Terrain.Grass && map.terrain[(ty - 1) * map.w + tx + k] === Terrain.Grass && map.terrain[(ty + 1) * map.w + tx + k] === Terrain.Grass);
+      if (!open) continue;
+      const d = Math.hypot(tx - hearth.x, ty - hearth.y);
+      if (!best || d < best.d) best = { tree: tile, tx, ty, gx: tx + 1, gy: ty, d };
+    }
+  }
+  if (!best) throw new Error('no forest edge');
+  return { ...best, far: { x: best.tx + 3.5, y: best.ty + 0.5 } };
 }
 
 function step(world: World, seconds: number): void {
@@ -245,5 +284,148 @@ describe('BattleActions on a real battle', () => {
     actions.cardKey('Q', false);
     expect(errors.length).toBe(1);
     expect(errors[0]).toMatch(/Grain/);
+  });
+});
+
+describe('battle-lane fixes (BattleActions)', () => {
+  it('B1: T+click, then Shift+C + Shift+click queues the Cottage behind the tower; both complete', () => {
+    const { world, ui, actions } = boot();
+    world.debug.revealAll = true;
+    world.players[0].res = { grain: 500, timber: 500, ember: 200 };
+    const tiller = own(world, 'tiller')[0];
+    actions.setSelection([tiller.id]);
+    expect(actions.cardKey('T', false)).toBe(true);
+    expect(ui.placement?.building).toBe('brazier_tower');
+    const a = findSpot(world, ui, actions)!;
+    actions.placeAt(a.x, a.y, false);
+    expect(ui.placement).toBeNull();
+    const tower = world.buildings.find((b) => b.type === 'brazier_tower' && b.owner === 0 && !b.built)!;
+    expect(tiller.order).toMatchObject({ type: 'build', buildingId: tower.id });
+
+    expect(actions.cardKey('C', true)).toBe(true);
+    const c = findSpot(world, ui, actions, 4, [a])!;
+    actions.placeAt(c.x, c.y, true);
+    const cottage = world.buildings.find((b) => b.type === 'cottage' && b.owner === 0 && !b.built)!;
+    expect(cottage).toBeDefined();
+    expect(tiller.order).toMatchObject({ type: 'build', buildingId: tower.id });
+    expect(tiller.queue).toEqual([{ type: 'build', buildingId: cottage.id }]);
+    actions.cancelModes();
+
+    step(world, 90);
+    expect((world.entities.get(tower.id) as Building).built).toBe(true);
+    expect((world.entities.get(cottage.id) as Building).built).toBe(true);
+  });
+
+  it('B1: a first Shift-placement by a gathering Tiller still starts the build at once', () => {
+    const { world, ui, actions } = boot();
+    const hearth = world.entities.get(world.hearthId)!;
+    const thicket = world.resources.filter((r) => r.type === 'thicket').sort((p, q) => Math.hypot(p.x - hearth.x, p.y - hearth.y) - Math.hypot(q.x - hearth.x, q.y - hearth.y))[0];
+    const tiller = own(world, 'tiller')[0];
+    actions.setSelection([tiller.id]);
+    actions.smartAt(thicket.x, thicket.y, false);
+    expect(tiller.order.type).toBe('gather');
+    actions.cardKey('C', true);
+    const c = findSpot(world, ui, actions)!;
+    actions.placeAt(c.x, c.y, true);
+    expect(tiller.order.type).toBe('build');
+    expect(tiller.queue.length).toBe(0);
+  });
+
+  it('B3: changing speed while paused keeps the pause and says so', () => {
+    const { ui, actions, notices } = boot();
+    actions.togglePause();
+    expect(ui.paused).toBe(true);
+    actions.setSpeed(2);
+    expect(ui.speed).toBe(2);
+    expect(ui.paused).toBe(true);
+    expect(notices.at(-1)).toBe('Speed 2× · still paused');
+    actions.stepSpeed(-1);
+    expect(ui.paused).toBe(true);
+    expect(notices.at(-1)).toBe('Speed 1.5× · still paused');
+    actions.togglePause();
+    expect(ui.paused).toBe(false);
+    expect(ui.speed).toBe(1.5);
+  });
+
+  it('B4: a right-click on grass 0.4 tiles from a tree gathers it; open grass still moves', () => {
+    const { world, actions } = boot();
+    world.debug.revealAll = true;
+    const edge = forestEdge(world);
+    const tillers = own(world, 'tiller').slice(0, 2);
+    const courser = own(world, 'courser')[0];
+    actions.setSelection([...tillers.map((u) => u.id), courser.id]);
+    // 0.4 tiles east of the tree tile's right edge, on grass.
+    actions.smartAt(edge.tx + 1.4, edge.ty + 0.5, false);
+    for (const u of tillers) {
+      expect(u.order.type).toBe('gather');
+      const t = (u.order as { target: { kind: string; tile?: number } }).target;
+      expect(t.kind).toBe('tree');
+    }
+    expect(['move', 'idle']).toContain(courser.order.type);
+    if (courser.order.type === 'move') expect(courser.order.x).toBeCloseTo(edge.tx + 1.4, 3);
+
+    actions.setSelection(tillers.map((u) => u.id));
+    actions.smartAt(edge.far.x, edge.far.y, false);
+    for (const u of tillers) expect(u.order.type).toBe('move');
+  });
+
+  it('B4: canopyTreeAt picks the overhung tree within reach only', () => {
+    const { world, actions } = boot();
+    world.debug.revealAll = true;
+    const edge = forestEdge(world);
+    expect(actions.canopyTreeAt(edge.tx + 1.4, edge.ty + 0.5)).toBe(edge.tree);
+    expect(actions.canopyTreeAt(edge.tx + 1.7, edge.ty + 0.5)).toBeNull();
+  });
+
+  it('B7: every selection change asks the HUD to repaint', () => {
+    const { world, actions, invalidations } = boot();
+    const before = invalidations();
+    actions.selectWarden();
+    actions.selectHearth();
+    expect(invalidations()).toBe(before + 2);
+    expect(world.hearthId).toBeGreaterThan(0);
+  });
+
+  it("B8: ',' then Shift+` adds the Warden to the army; ` alone selects only the Warden", () => {
+    const { world, ui, actions } = boot();
+    actions.selectAllMilitary();
+    const army = ui.selection.filter((id) => id !== world.wardenId);
+    // Box-style "all military" includes the Warden already; drop it to model the tester's selection.
+    actions.setSelection(army);
+    expect(ui.selection).not.toContain(world.wardenId);
+    actions.selectWarden(true);
+    expect(ui.selection).toEqual([...army, world.wardenId]);
+    actions.selectWarden(false);
+    expect(ui.selection).toEqual([world.wardenId]);
+  });
+
+  it('B8: double-tap ` still centres on the Warden (with or without Shift)', () => {
+    const { world, camera, actions, ui } = boot();
+    const w = world.entities.get(world.wardenId)!;
+    camera.centerOn(w.x, w.y); // expected (clamped) camera position
+    const want = { x: camera.x, y: camera.y };
+    camera.centerOn(world.map.w - 5, world.map.h - 5);
+    expect(Math.hypot(camera.x - want.x, camera.y - want.y)).toBeGreaterThan(3);
+    actions.selectWarden(true);
+    actions.selectWarden(true);
+    expect(ui.selection).toContain(world.wardenId);
+    expect(camera.x).toBeCloseTo(want.x, 5);
+    expect(camera.y).toBeCloseTo(want.y, 5);
+  });
+
+  it('B12b: releasing Shift after queued attack-move waypoints ends the mode', () => {
+    const { world, ui, actions } = boot();
+    const courser = own(world, 'courser')[0];
+    actions.setSelection([courser.id]);
+    actions.startAttackMove();
+    actions.shiftReleased();
+    expect(ui.targeting).toEqual({ kind: 'attackMove' }); // nothing queued yet: still armed
+    actions.targetAt(courser.x + 4, courser.y, true);
+    actions.targetAt(courser.x + 6, courser.y + 2, true);
+    expect(ui.targeting).toEqual({ kind: 'attackMove' });
+    actions.shiftReleased();
+    expect(ui.targeting).toBeNull();
+    expect(courser.order.type).toBe('attackMove');
+    expect(courser.queue.length).toBe(1);
   });
 });

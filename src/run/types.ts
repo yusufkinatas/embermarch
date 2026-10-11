@@ -181,6 +181,12 @@ export interface RunState {
   summary?: RunSummary;
   /** Result of the last finishBattle (lets the Results screen survive a reload). */
   lastBattle?: PostBattle;
+  /**
+   * Last Stands spent so far in the boss battle in progress (recorded by the battle screen).
+   * An abandoned boss battle charges them on Continue on top of the −1 Resolve. Reset by
+   * startBattle and finishBattle.
+   */
+  bossLastStandsUsed?: number;
 }
 
 /** Camp choice as shown on the Camp screen. */
@@ -238,6 +244,12 @@ export interface Briefing {
   canRetreat: boolean;
   /** Resolve cost text for quitting mid-battle. */
   quitCostText: string;
+  /** Tillers that take the field: the common start plus House, Boon, meta and Refugee extras. */
+  tillers?: number;
+  /** Coursers that take the field (the free scout plus any extras). */
+  coursers?: number;
+  /** Run-level easing shown like a modifier, e.g. the first-march wave reduction. */
+  assists?: string[];
 }
 
 export interface CrownLine {
@@ -253,6 +265,8 @@ export interface PostBattle {
   /** True if this result ended the run (Resolve 0 or the Regent slain). */
   runOver: boolean;
   runWon: boolean;
+  /** Extra lines for the Results screen (e.g. Stragglers after a defeat). */
+  notes?: string[];
 }
 
 export interface EventView {
@@ -264,6 +278,14 @@ export interface EventView {
 
 export interface EventOutcome {
   text: string;
+  /** Boons the choice granted (shown as cards). */
+  boons?: BoonId[];
+  /** Boons the choice took away. */
+  boonsLost?: BoonId[];
+  /** Drafts the choice granted. */
+  drafts?: DraftId[];
+  /** Sellswords the choice added for the next battle. */
+  sellswords?: CarriedUnit[];
 }
 
 export interface RunSummary {

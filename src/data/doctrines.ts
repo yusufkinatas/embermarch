@@ -2,6 +2,10 @@
  * Thornwake doctrines (GDD §I "Doctrines"). Weights drive wave composition; types below their
  * unlock depth (balance ENEMY_UNLOCK_DEPTH) drop out. Gloamwitch is SHOULD: if cut, its weight
  * goes to the Spinecaster.
+ *
+ * Counsel (`answer`) starts with the doctrine name. When it names drafted units, `answerCore` names
+ * only core units (Ashpike, Bowman, Courser; Forgehall research) and `answerDrafts` lists the drafts,
+ * so the briefing can fall back to it when the run has not unlocked them.
  */
 import type { DoctrineId } from '../sim/types';
 import type { DoctrineDef } from './types';
@@ -24,7 +28,9 @@ export const DOCTRINES: Record<DoctrineId, DoctrineDef> = {
     weights: { spinecaster: 50, briarguard: 25, thornling: 25, gloamwitch: 10, thornhusk: 10 },
     target: 'nearest_military',
     hint: 'Quills litter the road.',
-    answer: 'Quills: bring Coursers and Oathshields. Against Thornhusks, bring heavy horse or Ember Edge.',
+    answer: 'Spines: bring Coursers and Oathshields. Against Thornhusks, bring Destriers or research Ember Edge.',
+    answerCore: 'Spines: bring Coursers to run down the Spinecasters. Against Thornhusks, research Ember Edge at the Forgehall.',
+    answerDrafts: ['oathshield', 'destrier'],
     icon: 'quill',
   },
   hunt: {
@@ -34,7 +40,7 @@ export const DOCTRINES: Record<DoctrineId, DoctrineDef> = {
     weights: { stagrider: 45, thornling: 35, spinecaster: 20, briarguard: 15 },
     target: 'storehouse_tillers',
     hint: 'Hoofprints in the mud.',
-    answer: 'Hoofprints: bring Ashpikes, and guard your Tillers with towers.',
+    answer: 'Hunt: bring Ashpikes, and guard your Tillers with towers.',
     icon: 'antler',
   },
   siegebreak: {
@@ -44,7 +50,7 @@ export const DOCTRINES: Record<DoctrineId, DoctrineDef> = {
     weights: { briarguard: 40, spinecaster: 40, rootbreaker: 20, thornhusk: 15, stagrider: 12 },
     target: 'nearest_tower',
     hint: 'Uprooted oaks drag toward your camp.',
-    answer: 'Uprooted oaks: bring Coursers, and put melee on the Rootbreakers.',
+    answer: 'Siegebreak: bring Coursers, and put melee on the Rootbreakers.',
     icon: 'ram',
   },
   court: {
@@ -54,7 +60,9 @@ export const DOCTRINES: Record<DoctrineId, DoctrineDef> = {
     weights: { briarguard: 25, spinecaster: 25, stagrider: 20, gloamwitch: 15, thornhusk: 15, rootbreaker: 10 },
     target: 'hearth',
     hint: 'A crown glints in the briars.',
-    answer: 'A crown: field a mixed army and focus the Gloamwitches. Heavy horse or Ember Edge for the Thornhusks.',
+    answer: 'Court: field a mixed army and focus the Gloamwitches. Destriers or Ember Edge for the Thornhusks.',
+    answerCore: 'Court: field a mixed army and focus the Gloamwitches. Research Ember Edge for the Thornhusks.',
+    answerDrafts: ['destrier'],
     icon: 'crown',
   },
 };

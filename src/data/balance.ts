@@ -98,6 +98,8 @@ export const GATHER = {
   fullNodeRetries: 1,
   /** Depleted node: seek the same resource within this radius, else idle. */
   depletedSearchRadius: 8,
+  /** A builder whose remembered source ran out while it built looks this far for the same resource. */
+  resumeSearchRadius: 10,
 };
 
 /** Tiller flee rules (§D). */
@@ -340,6 +342,13 @@ export const ACQUIRE = {
   meleeRetargetRadius: 3,
   /** Shift-queued orders cap. */
   maxQueuedOrders: 8,
+  /**
+   * Units whose structure multiplier is below this (Bowman 0.2, Outrider 0.2, Courser 0.4) never pick
+   * a structure on their own initiative: only an explicit attack order sends them at a building.
+   */
+  autoStructureMinMod: 0.5,
+  /** Such an idle unit shot by a structure steps this many tiles outside the structure's range. */
+  structureStepOut: 1.5,
 };
 
 /** Auto-acquire radius for a unit with the given (composed) range. */
@@ -527,7 +536,10 @@ export const ASCENDANT = {
 
 /** Holdfast waves (§C). */
 export const HOLDFAST = {
-  hbase: [6, 10, 14, 19, 26, 40],
+  /** Raised so a Hearth and Warden alone never hold all six waves at d1-3 (§R, fix pass). */
+  hbase: [8, 13, 18, 25, 34, 52],
+  /** Holdfast's own depth slope: F_H(d) = 1 + 0.06(d − 1). d6 stays within +3% of the old curve. */
+  fSlope: 0.06,
   launchTimes: [60, 105, 150, 195, 240, 285],
   musterLead: 30,
   waves: 6,
@@ -540,10 +552,10 @@ export const HOLDFAST = {
   uprootedCrowns: 30,
 };
 
-/** Holdfast wave value floor(Hbase[n] × F(d) × N × M), n is 1-based (1-6). */
+/** Holdfast wave value floor(Hbase[n] × (1 + 0.06(d − 1)) × N × M), n is 1-based (1-6). */
 export function holdfastWaveValue(n: number, d: number, N = 1, M = 1): number {
   const base = HOLDFAST.hbase[Math.max(0, Math.min(HOLDFAST.hbase.length - 1, n - 1))];
-  return floorEps(base * depthFactor(d) * N * M);
+  return floorEps(base * (1 + HOLDFAST.fSlope * (d - 1)) * N * M);
 }
 
 // ===========================================================================
@@ -576,10 +588,10 @@ export const DIRECTOR = {
 /** Spent Nests (§I). */
 export const SPENT = {
   damageMult: 1.5,
-  /** Spent ends 30 s after the wave breaks... */
-  afterBroken: 30,
-  /** ...or 90 s after launch if the wave is still alive. */
-  maxFromLaunch: 90,
+  /** Spent ends 45 s after the wave breaks (time to walk out and clear the garrison)... */
+  afterBroken: 45,
+  /** ...or 105 s after launch if the wave is still alive. */
+  maxFromLaunch: 105,
 };
 
 /** Light adaptation (§I, SHOULD). */
@@ -762,7 +774,8 @@ export const BEACONS = {
   /** Progress decays at 1 s/s when empty. */
   decayRate: 1,
   kindlingPerSec: 1,
-  kindlingTarget: 300,
+  /** 450 (was 300): the bot won at a median 4:00, far under par 5:30. */
+  kindlingTarget: 450,
   emberPerSec: 0.3,
   vision: 8,
   snuffTime: 8,
@@ -814,8 +827,9 @@ export const BOSS = {
   wrathDamagePct: 20,
   wrathInterval: 45,
   hearts: 3,
-  heartHp: 1400,
-  heartGarrisonValue: 16,
+  /** 1200 HP and garrison 12 (were 1400 / 16): a run-like army burned only 1 of 3 Hearts before Wrath. */
+  heartHp: 1200,
+  heartGarrisonValue: 12,
   heartGarrisonRegenInterval: 15,
   /** Each Heart destroyed removes 1500 HP from the phase-2 pool. */
   phase2HpBase: 3000,

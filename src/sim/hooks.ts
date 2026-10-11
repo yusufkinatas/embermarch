@@ -13,7 +13,7 @@ import { emit } from './alerts';
 import { core } from './core';
 import { addRes } from './players';
 import { hasFlag, unitStats } from './stats';
-import type { Building, Entity, Unit, World } from './types';
+import type { Building, Entity, Owner, Unit, World } from './types';
 import { ENEMY, PLAYER } from './types';
 
 /** Set a unit's rank, scaling current HP with the new max. */
@@ -34,11 +34,16 @@ export function creditKill(world: World, killer: Unit): void {
   if (r > killer.rank) setRank(world, killer, r);
 }
 
-export function onUnitKilled(world: World, victim: Unit, killerId: number): void {
+/**
+ * A unit died. `killerOwner` covers killers that are already gone (an arrow in flight or a burn from
+ * a dead attacker): the kill still counts for stats and Spoils; rank-ups need a live killer.
+ */
+export function onUnitKilled(world: World, victim: Unit, killerId: number, killerOwner?: Owner): void {
   const killer = killerId ? world.entities.get(killerId) : undefined;
-  if (!killer || killer.owner === victim.owner) return;
-  if (killer.kind === 'unit' && killer.alive) creditKill(world, killer);
-  if (killer.owner === PLAYER && victim.owner === ENEMY) {
+  const owner = killer ? killer.owner : killerOwner;
+  if (owner === undefined || owner === victim.owner) return;
+  if (killer && killer.kind === 'unit' && killer.alive) creditKill(world, killer);
+  if (owner === PLAYER && victim.owner === ENEMY) {
     const p = world.players[PLAYER];
     p.stats.kills++;
     if (hasFlag(world, PLAYER, 'spoils_of_the_wake')) addRes(p, INCOME.spoilsPerKill);

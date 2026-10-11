@@ -50,7 +50,8 @@ export const HOUSES: Record<HouseId, HouseDef> = {
     abilityTargeted: true,
     passiveDesc: 'Muster Hall trains 25% faster. Retinue units start at Rank I or higher. Grain gathering −10%.',
     effects: [
-      { kind: 'stat', sel: { units: ['ashpike', 'oathshield'] }, stat: 'trainTime', pct: -25 },
+      // "25% faster" = time × 1/1.25 = −20% (boons.ts convention).
+      { kind: 'stat', sel: { units: ['ashpike', 'oathshield'] }, stat: 'trainTime', pct: -20 },
       { kind: 'gather', res: 'grain', pct: -10 },
     ],
     tags: ['Pike', 'Warden'],

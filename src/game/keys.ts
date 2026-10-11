@@ -19,7 +19,8 @@ export type KeyAction =
   | { type: 'hold' }
   | { type: 'group'; n: number; op: 'recall' | 'assign' | 'add' }
   | { type: 'selectHearth' }
-  | { type: 'selectWarden' }
+  /** `add` (Shift+`): toggle the Warden in the current selection instead of replacing it. */
+  | { type: 'selectWarden'; add?: boolean }
   | { type: 'idleTiller' }
   | { type: 'allMilitary' }
   | { type: 'jumpAlert' }
@@ -75,7 +76,7 @@ export function resolveKey(k: KeyInput): KeyAction | null {
     case 'Escape':
       return { type: 'escape' };
     case 'Backquote':
-      return { type: 'selectWarden' };
+      return { type: 'selectWarden', add: k.shiftKey };
     case 'Period':
     case 'NumpadDecimal':
       return { type: 'idleTiller' };
@@ -106,6 +107,52 @@ export function resolveKey(k: KeyInput): KeyAction | null {
   const g = GLOBAL_LETTERS[letter];
   if (g) return g;
   return { type: 'card', letter, shift: k.shiftKey };
+}
+
+// ---------------------------------------------------------------------------
+// Hotkey labels for the player's keyboard layout (bindings stay on e.code)
+// ---------------------------------------------------------------------------
+
+/** e.code → printed key (e.g. QWERTZ: KeyZ → 'y'), from navigator.keyboard.getLayoutMap(). */
+let layoutMap: ReadonlyMap<string, string> | null = null;
+
+/** Install (or clear) the layout map used for hotkey labels. */
+export function setKeyboardLayout(map: ReadonlyMap<string, string> | null): void {
+  layoutMap = map && map.size ? new Map(map) : null;
+}
+
+/** The character printed on the key with this code, upper-cased; falls back to the QWERTY letter. */
+export function letterFor(code: string): string {
+  const k = layoutMap?.get(code);
+  if (k && k.trim()) return k.length === 1 ? k.toUpperCase() : k;
+  return letterOf(code) ?? (code === 'Backquote' ? '`' : code);
+}
+
+/**
+ * Label for a hotkey written as its QWERTY character in data/HUD ('Z', 'Q', '`'). Bindings use
+ * e.code, so on QWERTZ the research key 'Z' (KeyZ) is printed as 'Y'. Other labels pass through.
+ */
+export function hotkeyLabel(hotkey: string): string {
+  if (/^[A-Za-z]$/.test(hotkey)) return letterFor(`Key${hotkey.toUpperCase()}`);
+  if (hotkey === '`') return letterFor('Backquote');
+  return hotkey;
+}
+
+interface LayoutNavigator {
+  keyboard?: { getLayoutMap?: () => Promise<ReadonlyMap<string, string>> };
+}
+
+/** Read the layout map once (Chromium); without navigator.keyboard the QWERTY labels stay. */
+export async function loadKeyboardLayout(nav: LayoutNavigator | undefined = typeof navigator !== 'undefined' ? (navigator as LayoutNavigator) : undefined): Promise<boolean> {
+  const get = nav?.keyboard?.getLayoutMap;
+  if (typeof get !== 'function') return false;
+  try {
+    const map = await get.call(nav!.keyboard);
+    setKeyboardLayout(map);
+    return !!layoutMap;
+  } catch {
+    return false;
+  }
 }
 
 /** Should the browser default be suppressed for this key? */

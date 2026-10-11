@@ -7,6 +7,7 @@ import type { BiomeId } from '../../sim/types';
 import { OBJECTIVES } from '../../data/objectives';
 import { BIOMES } from '../../data/biomes';
 import { MODIFIERS } from '../../data/modifiers';
+import { DOCTRINES } from '../../data/doctrines';
 import { NODE_NAMES, REWARD_NAMES } from '../../data/text';
 import { CAMP_TEXT } from '../../data/text';
 import { h, s, roman, type Child } from '../dom';
@@ -32,6 +33,8 @@ export interface MapViewOptions {
   animateEdge: string | null;
   tooltips: Tooltips;
   onEnter(nodeId: string): void;
+  /** What winning a battle node pays (the run API's nodeRewardText, shared with the briefing). */
+  rewardText?(nodeId: string): string;
 }
 
 export interface MapView {
@@ -82,7 +85,7 @@ function rgba(hex: string, a: number): string {
 
 // ------------------------------------------------------------------ tooltip
 
-export function nodeTooltip(node: RunNode): Child {
+export function nodeTooltip(node: RunNode, rewardText?: string): Child {
   const b = node.battle;
   if (!b || node.type === 'event' || node.type === 'peddler' || node.type === 'camp') {
     const text =
@@ -97,6 +100,7 @@ export function nodeTooltip(node: RunNode): Child {
   }
   const obj = OBJECTIVES[b.objective];
   const biome = BIOMES[b.biome];
+  const doctrine = DOCTRINES[b.doctrine];
   const reward = REWARD_NAMES[b.reward];
   const skulls = h('span', { class: 'skulls' });
   for (let i = 0; i < 5; i++) skulls.appendChild(glyph('skull', i < b.threat ? '' : 'off'));
@@ -124,7 +128,10 @@ export function nodeTooltip(node: RunNode): Child {
       ),
     );
   }
-  rows.push(ttRow('Reward', h('span', null, h('b', null, reward.name), ' · ', reward.desc)));
+  rows.push(ttRow('Doctrine', h('span', null, h('b', null, doctrine.name), ' · ', h('span', { class: 'muted' }, doctrine.hint))));
+  // Elites pay a Rare+ Boon then a Draft, and the boss ends the march: say so, as the briefing does.
+  const pays = rewardText ?? (node.type === 'battle' ? `${reward.name}: ${reward.desc}` : '');
+  if (pays) rows.push(ttRow('Reward', h('span', null, pays)));
   rows.push(ttRow('Threat', skulls));
   return rows;
 }
@@ -507,7 +514,7 @@ export function buildMapView(opts: MapViewOptions): MapView {
       if (cur) edgeEls.get(edgeKey(cur, node.id))?.classList.remove('hl');
     });
     opts.tooltips.attach(g, () => {
-      const body = nodeTooltip(node);
+      const body = nodeTooltip(node, node.battle ? opts.rewardText?.(node.id) : undefined);
       const hint =
         clickable
           ? h('div', { class: 'tt-hint accent' }, state === 'current' ? 'The Hearthband is here. Click to continue.' : 'Click to march here.')

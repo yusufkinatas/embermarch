@@ -38,6 +38,8 @@ export interface SpawnUnitOpts {
   hpPct?: number;
   /** Do not count toward pop (pre-placed units still count toward pop but ignore the cap). */
   silent?: boolean;
+  /** The free scout Courser (Unit.free). */
+  free?: boolean;
 }
 
 export function spawnUnit(world: World, type: UnitId, owner: Owner, x: number, y: number, opts?: SpawnUnitOpts): Unit {
@@ -91,6 +93,7 @@ export function spawnUnit(world: World, type: UnitId, owner: Owner, x: number, y
     carried: opts?.carried ?? false,
     ai: null,
   };
+  if (opts?.free) u.free = true;
   world.entities.set(id, u);
   world.units.push(u);
   const uc = ucore(world, u);
@@ -217,6 +220,8 @@ export function getResource(world: World, id: number): ResourceNode | undefined 
 export interface KillOpts {
   /** Player demolition: not counted as a building lost. */
   demolished?: boolean;
+  /** Owner of the killer when it may already be gone (an arrow or burn from a dead attacker). */
+  killerOwner?: Owner;
 }
 
 /**
@@ -256,7 +261,7 @@ export function killEntity(world: World, e: Entity, killerId: number, opts?: Kil
     if (e.type === 'antlered_lord') c.lordSlain = true;
     if (e.type === 'briar_regent') c.regentSlain = true;
     emit(world, { t: 'death', id: e.id, kind: 'unit', type: e.type, owner: e.owner, x: e.x, y: e.y });
-    onUnitKilled(world, e, killerId);
+    onUnitKilled(world, e, killerId, opts?.killerOwner);
   } else if (e.kind === 'building') {
     setFootprint(world, e.tx, e.ty, e.w, e.h, 0);
     if (e.owner === PLAYER) {

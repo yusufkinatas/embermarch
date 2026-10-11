@@ -129,7 +129,7 @@
 
 .bt-kbd {
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--accent-hi);
   border: 1px solid var(--border);
@@ -174,7 +174,7 @@
   width: 28px;
   height: 28px;
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: max(calc(11px / var(--s)), 10px);
   font-weight: 700;
   color: var(--muted);
   display: inline-flex;
@@ -235,6 +235,46 @@
   flex: none;
   display: flex;
   align-items: center;
+  position: relative;
+}
+/* Active pause: compact amber pill right of the clock (the clock stays centred). */
+.bt-pause-pill {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 10px 0 7px;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #2a1606 !important;
+  background: linear-gradient(180deg, #ffd27a, #e8a33d);
+  border: 1px solid #ffe2a8;
+  border-radius: 10px;
+  box-shadow:
+    0 0 10px rgba(255, 179, 71, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  animation: bt-pause-glow 2.4s ease-in-out infinite;
+}
+.bt-pause-pill svg {
+  width: 10px;
+  height: 10px;
+  display: block;
+}
+@keyframes bt-pause-glow {
+  50% {
+    box-shadow:
+      0 0 16px rgba(255, 179, 71, 0.7),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
 }
 .bt-res {
   display: flex;
@@ -384,7 +424,8 @@
   pointer-events: none;
 }
 .bt-horn-wrap > * {
-  pointer-events: auto;
+  /* The Horn and Spent ribbon let clicks through to the battlefield (units under them stay usable). */
+  pointer-events: none;
 }
 
 .bt-horn {
@@ -394,9 +435,10 @@
   min-width: 250px;
   max-width: 470px;
   padding: 5px 22px 6px;
+  pointer-events: none;
   background:
-    radial-gradient(120% 140% at 50% 0%, rgba(232, 163, 61, 0.18), transparent 60%),
-    linear-gradient(180deg, rgba(40, 32, 24, 0.96), rgba(16, 13, 10, 0.97));
+    radial-gradient(120% 140% at 50% 0%, rgba(232, 163, 61, 0.16), transparent 60%),
+    linear-gradient(180deg, rgba(40, 32, 24, 0.76), rgba(16, 13, 10, 0.74));
   border: 1px solid var(--border-bright);
   clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 50%, 100% 100%, 0 100%, 12px 50%);
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
@@ -426,8 +468,8 @@
 .bt-horn.advancing {
   border-color: #c4473c;
   background:
-    radial-gradient(120% 140% at 50% 0%, rgba(217, 68, 59, 0.32), transparent 62%),
-    linear-gradient(180deg, rgba(48, 22, 20, 0.97), rgba(20, 10, 10, 0.97));
+    radial-gradient(120% 140% at 50% 0%, rgba(217, 68, 59, 0.3), transparent 62%),
+    linear-gradient(180deg, rgba(48, 22, 20, 0.78), rgba(20, 10, 10, 0.76));
   animation: bt-horn-alarm 1.6s ease-in-out infinite;
 }
 @keyframes bt-horn-alarm {
@@ -438,6 +480,46 @@
 .bt-horn.great .bt-horn-title {
   color: #ff9a7a;
 }
+/* Collapsed after the callout: one line "Wave 3 · 0:21 · N · Medium" (≤ 50 px tall at any scale). */
+.bt-horn.collapsed {
+  padding: 2px 20px 3px;
+  min-width: 0;
+}
+.bt-horn.collapsed .bt-horn-main {
+  flex-direction: row;
+  gap: 8px;
+}
+.bt-horn.collapsed .bt-horn-comp {
+  min-height: 0;
+  flex-wrap: nowrap;
+  gap: 0 6px;
+}
+.bt-horn.collapsed .bt-horn-comp::before {
+  content: '·';
+  color: var(--accent-hi);
+  font-weight: 700;
+  margin-right: 2px;
+}
+.bt-horn.collapsed .bt-horn-unit .bt-unit-ic {
+  width: 18px;
+  height: 18px;
+}
+.bt-horn.collapsed .bt-horn-unscouted {
+  display: none;
+}
+.bt-horn.collapsed .bt-horn-doctrine {
+  padding-right: 6px;
+  margin-right: 6px;
+}
+.bt-horn.collapsed .bt-horn-doctrine span {
+  display: none;
+}
+/* Small tags keep their tooltips (the doctrine answer, how to scout). */
+.bt-horn-doctrine,
+.bt-horn-unscouted,
+.bt-horn-unit {
+  pointer-events: auto;
+}
 .bt-horn-doctrine {
   display: flex;
   align-items: center;
@@ -447,7 +529,7 @@
   border-right: 1px solid var(--bronze-dim);
   color: var(--thorn);
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: max(calc(11px / var(--s)), 10px);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -503,7 +585,7 @@
   color: #d8b8ec;
 }
 .bt-horn-unscouted {
-  font-size: 10px;
+  font-size: max(calc(11px / var(--s)), 10px);
   color: var(--muted);
   font-style: italic;
   margin-left: 6px;
@@ -569,7 +651,9 @@
   font-size: 12px;
   font-weight: 700;
   color: #ffe2a8;
-  background: linear-gradient(90deg, rgba(232, 163, 61, 0.05), rgba(232, 163, 61, 0.26), rgba(232, 163, 61, 0.05));
+  pointer-events: none;
+  text-shadow: 0 1px 0 #000;
+  background: linear-gradient(90deg, rgba(232, 163, 61, 0.04), rgba(232, 163, 61, 0.22), rgba(232, 163, 61, 0.04));
   border-top: 1px solid rgba(255, 210, 122, 0.4);
   border-bottom: 1px solid rgba(255, 210, 122, 0.4);
   border-radius: 2px;
@@ -645,7 +729,7 @@
   position: absolute;
   inset: 0;
   text-align: center;
-  font-size: 10px;
+  font-size: max(calc(11px / var(--s)), 10px);
   font-weight: 700;
   line-height: 14px;
   text-shadow: 0 1px 0 #000;
@@ -702,7 +786,7 @@
 }
 .bt-coach-label {
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: max(calc(11px / var(--s)), 10px);
   font-weight: 700;
   letter-spacing: 0.16em;
   color: var(--accent);
@@ -856,7 +940,7 @@
   gap: 3px;
 }
 .bt-mod {
-  font-size: 10px;
+  font-size: max(calc(11px / var(--s)), 10px);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1009,9 +1093,9 @@
   position: absolute;
   left: 0;
   top: calc(16px * var(--s));
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% + var(--lx, 0px)));
   white-space: nowrap;
-  font-size: calc(11px * var(--s));
+  font-size: max(11px, calc(11px * var(--s)));
   font-weight: 700;
   color: #ffb3a8;
   text-shadow:
@@ -1245,7 +1329,7 @@
   top: 1px;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 10px;
+  font-size: max(calc(11px / var(--s)), 10px);
   color: var(--accent-hi);
   text-shadow: 0 1px 0 #000;
 }
@@ -1496,7 +1580,7 @@
 }
 .bt-stat-k {
   font-family: var(--font-display);
-  font-size: 9px;
+  font-size: max(calc(11px / var(--s)), 9px);
   font-weight: 700;
   color: var(--muted);
   letter-spacing: 0.08em;
@@ -1505,6 +1589,42 @@
   font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+/* Boons, research, House and rank: raised stats green, lowered red (tooltip names the sources). */
+.bt-stat.up {
+  border-color: rgba(123, 224, 127, 0.55);
+}
+.bt-stat.up .bt-stat-v {
+  color: #9bf07a;
+}
+.bt-stat.down {
+  border-color: rgba(255, 107, 94, 0.55);
+}
+.bt-stat.down .bt-stat-v {
+  color: #ff7a6b;
+}
+.bt-hpbar.up::after,
+.bt-hpbar.down::after {
+  position: absolute;
+  right: 4px;
+  top: 0;
+  font-size: 11px;
+  line-height: 15px;
+  text-shadow: 0 1px 0 #000, 0 0 3px #000;
+}
+.bt-hpbar.up::after {
+  content: '▲';
+  color: #c8ffb0;
+}
+.bt-hpbar.down::after {
+  content: '▼';
+  color: #ff9a8f;
+}
+.bt-hpbar.up {
+  box-shadow: 0 0 0 1px rgba(155, 240, 122, 0.6);
+}
+.bt-hpbar.down {
+  box-shadow: 0 0 0 1px rgba(255, 107, 94, 0.6);
 }
 .bt-kills {
   font-size: 12px;
@@ -1839,7 +1959,7 @@
   display: flex;
   justify-content: center;
   gap: 3px;
-  font-size: 10px;
+  font-size: max(calc(11px / var(--s)), 10px);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -1854,6 +1974,24 @@
 }
 .bt-cost-item.short {
   color: #ff6b5e;
+}
+/* Three costs (Grain + Timber + Ember): a smaller icon and two cost lines, nothing clipped. */
+.bt-cmd.cost3 .bt-cmd-ic {
+  width: 30px;
+  height: 30px;
+  margin-top: 5px;
+}
+.bt-cmd.cost3 .bt-cmd-ic svg {
+  width: 22px;
+  height: 22px;
+}
+.bt-cmd.cost3 .bt-cmd-cost {
+  flex-wrap: wrap;
+  row-gap: 0;
+  column-gap: 4px;
+  padding: 0 2px;
+  line-height: 1.05;
+  bottom: 1px;
 }
 .bt-cmd-cd {
   --p: 0;
@@ -2228,30 +2366,18 @@
   }
 }
 
-.bt-paused {
+/* Active pause: thin amber inner border on the playfield edges (the words live in the top-bar pill). */
+.bt-pause-frame {
   position: absolute;
-  left: 50%;
-  top: 40%;
-  transform: translate(-50%, -50%) scale(var(--s));
-  text-align: center;
+  left: 0;
+  right: 0;
+  top: calc(32px * var(--s));
+  bottom: calc(170px * var(--s));
   pointer-events: none !important;
-  z-index: 4;
-}
-.bt-paused-title {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: 40px;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  color: rgba(244, 230, 193, 0.88);
-  text-shadow:
-    0 2px 0 #000,
-    0 0 20px rgba(0, 0, 0, 0.8);
-}
-.bt-paused-sub {
-  font-size: 13px;
-  color: var(--muted);
-  text-shadow: 0 1px 0 #000;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 179, 71, 0.55),
+    inset 0 0 36px rgba(255, 140, 26, 0.16);
+  z-index: 1;
 }
 
 /* Callout (Last Stand, Regent uprooted) */

@@ -3,8 +3,12 @@
  * research one at a time, Temper lock, requirements.
  */
 import { describe, expect, it } from 'vitest';
+import { BOONS } from '../../src/data/boons';
+import { HOUSES } from '../../src/data/houses';
+import { RESEARCH } from '../../src/data/research';
 import { killEntity, spawnBuilding, spawnUnit } from '../../src/sim/entities';
-import { carryCap } from '../../src/sim/stats';
+import { researchOptions } from '../../src/sim/queries';
+import { carryCap, researchCost, unitStats } from '../../src/sim/stats';
 import { drainEvents, issueCommand } from '../../src/sim/world';
 import type { Building, World } from '../../src/sim/types';
 import { PLAYER } from '../../src/sim/types';
@@ -109,6 +113,30 @@ describe('training', () => {
     expect(a.order.type).toBe('move');
     step(w, 10);
     expect(Math.hypot(a.x - 30, a.y - 30)).toBeLessThan(1);
+  });
+});
+
+describe('Ember Tithe and House Grimbrand (fix pass)', () => {
+  it('Ember Tithe discounts research Ember by 15%, and the command card shows it', () => {
+    const w = makeWorld({ playerEffects: BOONS.ember_tithe.effects });
+    const p = w.players[PLAYER];
+    p.res = { grain: 1000, timber: 1000, ember: 1000 };
+    const fh = spawnBuilding(w, 'forgehall', PLAYER, 30, 30);
+    expect(RESEARCH.ember_edge.cost.ember).toBe(100);
+    expect(researchCost(w, PLAYER, 'ember_edge').ember).toBe(85);
+    expect(researchOptions(w, fh).find((o) => o.id === 'ember_edge')!.cost.ember).toBe(85);
+    expect(issueCommand(w, { type: 'research', buildingId: fh.id, research: 'ember_edge' }).ok).toBe(true);
+    expect(p.res.ember).toBe(1000 - 85);
+    expect(fh.research!.paid.ember).toBe(85);
+    // Without the Boon research is undiscounted.
+    const w2 = makeWorld();
+    expect(researchCost(w2, PLAYER, 'ember_edge').ember).toBe(100);
+  });
+
+  it('Grimbrand: the Muster Hall trains 25% faster (Ashpike 12 s → 9.6 s)', () => {
+    const w = makeWorld({ house: 'grimbrand', playerEffects: HOUSES.grimbrand.effects });
+    expect(unitStats(w, PLAYER, 'ashpike').trainTime).toBeCloseTo(9.6, 6);
+    expect(unitStats(w, PLAYER, 'bowman').trainTime).toBe(unitStats(makeWorld(), PLAYER, 'bowman').trainTime);
   });
 });
 

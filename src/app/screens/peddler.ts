@@ -95,11 +95,12 @@ export function mountPeddler(app: AppCtx): ScreenHandle {
         ),
         item.sold ? h('div', { class: 'pi-sold-stamp' }, 'Sold') : null,
       );
-      if (item.boon) app.tooltips.attach(card, () => boonTooltip(item.boon!));
+      // Card tooltips stay over their own card, never over the neighbour in the row.
+      if (item.boon) app.tooltips.attach(card, () => boonTooltip(item.boon!), { clamp: 'target' });
       else if (item.draft) {
         const d = DRAFTS[item.draft];
-        app.tooltips.attach(card, () => [draftTooltip(item.draft!), d.units[0] ? unitTooltip(d.units[0]) : null]);
-      } else if (item.units?.length) app.tooltips.attach(card, () => unitTooltip(item.units![0].type));
+        app.tooltips.attach(card, () => [draftTooltip(item.draft!), d.units[0] ? unitTooltip(d.units[0]) : null], { clamp: 'target' });
+      } else if (item.units?.length) app.tooltips.attach(card, () => unitTooltip(item.units![0].type), { clamp: 'target' });
       if (!item.sold && !affordable && !pointless) app.tooltips.attach(buy, `You need ${item.price - r.crowns} more Crowns.`);
       buy.addEventListener('click', (e) => {
         e.stopPropagation();

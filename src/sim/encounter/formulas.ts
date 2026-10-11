@@ -313,14 +313,14 @@ export interface SpentClock {
 
 export const NOT_SPENT: SpentClock = { wave: -1, launchTick: -1, until: -1 };
 
-/** A Nest launches wave `wave`: Spent until 90 s after launch unless the wave breaks first. */
+/** A Nest launches wave `wave`: Spent until SPENT.maxFromLaunch (105 s) after launch unless the wave breaks first. */
 export function spentOnLaunch(wave: number, tick: number, tickRate: number): SpentClock {
   return { wave, launchTick: tick, until: tick + Math.round(SPENT.maxFromLaunch * tickRate) };
 }
 
 /**
- * Wave `wave` broke at `tick`. If it is the wave that made the Nest Spent and the 90 s cap has not
- * passed, Spent ends 30 s after the break.
+ * Wave `wave` broke at `tick`. If it is the wave that made the Nest Spent and the launch cap
+ * (SPENT.maxFromLaunch) has not passed, Spent ends SPENT.afterBroken (45 s) after the break.
  */
 export function spentOnBroken(c: SpentClock, wave: number, tick: number, tickRate: number): SpentClock {
   if (c.wave !== wave || c.until < 0 || tick >= c.until) return c;

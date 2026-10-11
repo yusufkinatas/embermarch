@@ -10,18 +10,19 @@ import '../styles/hud.css';
 import { OBJECTIVES } from '../data/objectives';
 import { generateMap } from '../mapgen';
 import { getAudio } from '../audio/sfx';
-import { Camera } from '../render/camera';
 import { createRenderer } from '../render/renderer';
 import { isEntityVisible } from '../sim/queries';
 import type { BattleResult, BattleSetup, Entity, World } from '../sim/types';
 import { ENEMY, PLAYER, TICK_RATE } from '../sim/types';
 import { buildBattleResult, createWorld, drainEvents, stepWorld } from '../sim/world';
 import { BattleActions, type ActionHost } from './actions';
+import { BattleCamera } from './battleCamera';
 import { AlertFeed } from './alerts';
 import { installDebugApi } from './debug';
 import { h } from './dom';
 import { HintDirector } from './hints';
-import { BOTTOM_PANEL_PX, Hud, TOP_BAR_PX } from './hud/hud';
+import { loadKeyboardLayout } from './keys';
+import { BOTTOM_PANEL_PX, Hud, maxZoomFor, startZoom, TOP_BAR_PX } from './hud/hud';
 import type { MenuSettings } from './hud/pauseMenu';
 import { BattleInput } from './input';
 import { FixedStepLoop } from './loop';
@@ -35,6 +36,7 @@ export const END_DELAY = 2.5;
 export const RETREAT_DELAY = 1.2;
 /** Sim speed while the end banner shows (dramatic slow-down). */
 const END_SPEED = 0.4;
+
 
 const VICTORY_TEXT: Record<string, string> = {
   raze: 'The Nests burn.',
@@ -68,7 +70,7 @@ export class BattleController implements BattleControllerLike {
   readonly world: World;
   readonly setup: BattleSetup;
   readonly ui: BattleUIState;
-  readonly camera: Camera;
+  readonly camera: BattleCamera;
   readonly actions: BattleActions;
   private readonly callbacks: BattleCallbacks;
   private readonly container: HTMLDivElement;
@@ -111,7 +113,7 @@ export class BattleController implements BattleControllerLike {
     });
     this.world = createWorld(setup, gen);
     this.ui = createBattleUIState();
-    this.camera = new Camera();
+    this.camera = new BattleCamera();
     this.camera.setMapSize(this.world.map.w, this.world.map.h);
 
     this.container = h('div', 'bt-root', root);
@@ -174,6 +176,8 @@ export class BattleController implements BattleControllerLike {
     this.loop = new FixedStepLoop(() => this.tick());
 
     this.resize();
+    // Large screens start closer so the map fills the view (no black side bars at 2560×1440).
+    this.camera.zoom = Math.min(this.camera.maxZoom, Math.max(this.camera.minZoom, startZoom(this.camera.viewH)));
     this.centerOnHearth();
   }
 
@@ -209,6 +213,10 @@ export class BattleController implements BattleControllerLike {
       if (act?.isActive) this.audio.unlock();
     });
     this.container.focus({ preventScroll: true });
+    // Hotkey labels follow the player's keyboard layout (QWERTZ / AZERTY); bindings stay on e.code.
+    void loadKeyboardLayout().then((ok) => {
+      if (ok && !this.destroyed) this.hud.invalidate();
+    });
     this.lastFrame = 0;
     this.raf = requestAnimationFrame(this.frame);
   }
@@ -375,10 +383,16 @@ export class BattleController implements BattleControllerLike {
     const hgt = Math.max(1, this.container.clientHeight || window.innerHeight);
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     this.safe('renderer.resize', () => this.renderer.resize(w, hgt, dpr));
+    // Keep what the player looks at in view (setViewport alone keeps the top-left world point).
+    const c = this.camera;
+    const focus = c.focusPoint();
     const s = this.hud.layout(w, hgt, dpr);
-    this.camera.topInset = Math.round(TOP_BAR_PX * s);
-    this.camera.bottomInset = Math.round(BOTTOM_PANEL_PX * s);
-    this.camera.setViewport(w, hgt);
+    c.topInset = Math.round(TOP_BAR_PX * s);
+    c.bottomInset = Math.round(BOTTOM_PANEL_PX * s);
+    c.maxZoom = maxZoomFor(hgt);
+    if (c.zoom > c.maxZoom) c.zoom = c.maxZoom;
+    c.setViewport(w, hgt);
+    c.centerOn(focus.x, focus.y);
   }
 
   private centerOnHearth(): void {
@@ -488,6 +502,7 @@ export class BattleController implements BattleControllerLike {
         this.settings.muted = m;
         this.safe('onSettingsChange', () => this.callbacks.onSettingsChange?.({ muted: m }));
       },
+      invalidateHud: () => this.hud?.invalidate(),
     };
   }
 

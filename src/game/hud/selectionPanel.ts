@@ -7,19 +7,21 @@
  * - building: HP, build progress, 5-slot queue with progress (click cancels), research, rally
  * - foreign entities (enemy, neutral objects, resources): read-only info
  */
+import { BEACONS, SPENT } from '../../data/balance';
 import { BUILDINGS } from '../../data/buildings';
 import { PLAYER_UNIT_IDS } from '../../data/ids';
 import { RESEARCH } from '../../data/research';
 import { RESOURCE_NODES } from '../../data/resources';
 import { CLASS_NAMES, RANK_NAMES, RESOURCE_NAMES } from '../../data/text';
 import { UNITS } from '../../data/units';
-import { buildingStats, unitStats } from '../../sim/stats';
+import { buildingStats } from '../../sim/stats';
 import type { Building, Entity, ResourceNode, Unit, UnitClass, World } from '../../sim/types';
 import { ENEMY, PLAYER } from '../../sim/types';
 import { clearChildren, h, setBar, setBgImage, setHidden, setHtml, setText, toggleClass } from '../dom';
 import { formatCountdown, plural } from '../format';
 import { CLASS_GLYPH, GLYPHS, iconSrc } from '../glyphs';
 import { classifySelection } from '../selection';
+import { carryInfo, unitStatLines, type StatKey, type StatLine } from '../statSources';
 import type { HudContext } from './context';
 
 const MAX_CELLS = 30;
@@ -105,6 +107,8 @@ interface UnitView {
   hpText: HTMLElement;
   order: HTMLElement;
   stats: Record<'atk' | 'arm' | 'rng' | 'spd', HTMLElement>;
+  cells: Record<'atk' | 'arm' | 'rng' | 'spd', HTMLElement>;
+  hp: HTMLElement;
   kills: HTMLElement;
   strong: HTMLElement;
   weak: HTMLElement;
@@ -140,6 +144,9 @@ export class SelectionPanel {
   private cells: Cell[] = [];
   private summary: HTMLElement | null = null;
   private resView: { name: HTMLElement; fill: HTMLElement; text: HTMLElement; status: HTMLElement; portrait: HTMLElement } | null = null;
+  /** Composed-vs-base stats of the selected unit (stat tooltips read them). */
+  private statLines: Record<StatKey, StatLine> | null = null;
+  private carryLine: { cap: number; base: number; sources: string[]; res: string } | null = null;
 
   constructor(parent: HTMLElement, private readonly ctx: HudContext) {
     this.el = h('div', 'bt-selection bt-panel', parent);
@@ -213,21 +220,33 @@ export class SelectionPanel {
     const hpText = h('div', 'bt-hpbar-text', hp);
     const order = h('div', 'bt-sel-order', info);
     const effects = h('div', 'bt-sel-effects', info);
+    this.ctx.tooltip.bind(hp, () => this.statTip('hp', 'Hit points'));
+    this.ctx.tooltip.bind(order, () => {
+      const c = this.carryLine;
+      if (!c) return null;
+      return {
+        title: 'Carry capacity',
+        body: `${c.cap} ${c.res} per trip.`,
+        lines: c.sources.length ? [`Base ${c.base}`, ...c.sources] : undefined,
+      };
+    });
 
     const side = h('div', 'bt-sel-side', root);
     const statsBox = h('div', 'bt-stats', side);
-    const mk = (label: string, tip: string): HTMLElement => {
+    const cells = {} as UnitView['cells'];
+    const mk = (key: 'atk' | 'arm' | 'rng' | 'spd', label: string, tip: string): HTMLElement => {
       const s = h('div', 'bt-stat', statsBox);
       h('span', 'bt-stat-k', s, label);
       const v = h('span', 'bt-stat-v', s);
-      this.ctx.tooltip.bind(s, () => ({ title: tip }));
+      cells[key] = s;
+      this.ctx.tooltip.bind(s, () => this.statTip(key, tip));
       return v;
     };
     const stats = {
-      atk: mk('ATK', 'Attack damage per hit'),
-      arm: mk('ARM', 'Armor: each point reduces damage with diminishing returns'),
-      rng: mk('RNG', 'Range in tiles, edge to edge'),
-      spd: mk('SPD', 'Speed in tiles per second'),
+      atk: mk('atk', 'ATK', 'Attack damage per hit'),
+      arm: mk('arm', 'ARM', 'Armor: each point reduces damage with diminishing returns'),
+      rng: mk('rng', 'RNG', 'Range in tiles, edge to edge'),
+      spd: mk('spd', 'SPD', 'Speed in tiles per second'),
     };
     const kills = h('div', 'bt-kills', side);
     const counters = h('div', 'bt-counters', side);
@@ -237,7 +256,15 @@ export class SelectionPanel {
     const wRow = h('div', 'bt-counter-row weak', counters);
     h('span', 'bt-counter-k', wRow, 'Weak vs');
     const weak = h('span', 'bt-counter-v', wRow);
-    this.unitView = { portrait, rank, name, role, hpFill, hpText, order, stats, kills, strong, weak, effects };
+    this.unitView = { portrait, rank, name, role, hpFill, hpText, order, stats, cells, hp, kills, strong, weak, effects };
+  }
+
+  /** Stat tooltip: what it means, plus base value and sources when Boons or ranks change it. */
+  private statTip(key: StatKey, title: string): { title: string; body?: string; lines?: string[] } {
+    const l = this.statLines?.[key];
+    if (!l || !l.tone) return { title };
+    const lines = [`Base ${Math.round(l.base * 10) / 10}`, ...l.sources];
+    return { title, body: l.tone === 'up' ? 'Raised above the base value.' : 'Lowered below the base value.', lines };
   }
 
   private fillUnit(u: Unit | undefined): void {
@@ -260,29 +287,30 @@ export class SelectionPanel {
     setText(v.hpText, `${Math.ceil(u.hp)} / ${Math.ceil(u.maxHp)}`);
 
     let orderLine = u.owner === PLAYER ? orderText(world, u) : u.ai ? aiStateText(u) : '';
-    if (u.carry && u.carry.amount > 0) orderLine += `${orderLine ? ' · ' : ''}carrying ${Math.floor(u.carry.amount)} ${RESOURCE_NAMES[u.carry.type]}`;
-    setText(v.order, orderLine);
-
-    let atk = def.atk;
-    let arm = def.armor;
-    let rng = def.range;
-    let spd = def.speed;
-    let mul = 1;
-    try {
-      const s = unitStats(world, u.owner, u.type, u.rank);
-      atk = s.atk;
-      arm = s.armor;
-      rng = s.range;
-      spd = s.speed;
-      mul = s.damageMul;
-    } catch {
-      /* base stats */
+    this.carryLine = null;
+    if (u.carry && u.carry.amount > 0) {
+      // "carrying 11/14 Grain": the cap shows carry Boons (Laden Packs) at work.
+      const c = carryInfo(world, u.owner, u.carry.type);
+      const res = RESOURCE_NAMES[u.carry.type];
+      this.carryLine = { ...c, res };
+      orderLine += `${orderLine ? ' · ' : ''}carrying ${Math.floor(u.carry.amount)}${c.cap > 0 ? `/${c.cap}` : ''} ${res}`;
     }
-    const atkVal = Math.round(atk * mul * 10) / 10;
-    setText(v.stats.atk, def.cooldown > 0 ? String(atkVal) : '—');
-    setText(v.stats.arm, String(Math.round(arm * 10) / 10));
-    setText(v.stats.rng, def.aura ? `aura ${def.aura.radius}` : String(Math.round(rng * 10) / 10));
-    setText(v.stats.spd, spd.toFixed(1));
+    setText(v.order, orderLine);
+    toggleClass(v.order, 'has-tip', !!this.carryLine?.sources.length);
+
+    const lines = unitStatLines(world, u.owner, u.type, u.rank);
+    this.statLines = lines;
+    setText(v.stats.atk, def.cooldown > 0 ? String(Math.round(lines.atk.value * 10) / 10) : '—');
+    setText(v.stats.arm, String(Math.round(lines.arm.value * 10) / 10));
+    setText(v.stats.rng, def.aura ? `aura ${def.aura.radius}` : String(Math.round(lines.rng.value * 10) / 10));
+    setText(v.stats.spd, lines.spd.value.toFixed(1));
+    for (const key of ['atk', 'arm', 'rng', 'spd'] as const) {
+      const tone = key === 'atk' && def.cooldown <= 0 ? '' : key === 'rng' && def.aura ? '' : lines[key].tone;
+      toggleClass(v.cells[key], 'up', tone === 'up');
+      toggleClass(v.cells[key], 'down', tone === 'down');
+    }
+    toggleClass(v.hp, 'up', lines.hp.tone === 'up');
+    toggleClass(v.hp, 'down', lines.hp.tone === 'down');
     setText(v.kills, u.kills > 0 || u.owner === PLAYER ? `Kills ${u.kills}` : '');
     setHtml(v.strong, def.strongVs.length ? classIcons(def.strongVs) : '<em>—</em>');
     setHtml(v.weak, def.weakVs.length ? classIcons(def.weakVs) : '<em>—</em>');
@@ -472,7 +500,7 @@ export class SelectionPanel {
       progress = b.buildProgress;
     } else if (b.nest) {
       const n = this.ctx.view?.nests.find((x) => x.id === b.id);
-      status = b.nest.spent ? `Spent · takes ×1.5 damage${n ? ` · ${formatCountdown(n.spentRemaining)}` : ''}` : 'Mustering the Thornwake';
+      status = b.nest.spent ? `Spent · takes ×${SPENT.damageMult} damage${n ? ` · ${formatCountdown(n.spentRemaining)}` : ''}` : 'Mustering the Thornwake';
       if (!b.nest.spent) progress = b.nest.musterProgress;
     } else if (b.object) {
       const o = b.object;
@@ -576,5 +604,5 @@ function beaconStatus(o: { lit: boolean; progress: number; [key: string]: unknow
   }
   if (o['contested'] === true) return 'Contested · drive the Thornwake off';
   if (o.progress > 0) return `Kindling · ${Math.floor(o.progress * 100)}%`;
-  return 'Unlit · keep a unit beside it for 10 s';
+  return `Unlit · keep a unit beside it for ${BEACONS.captureTime} s`;
 }

@@ -15,6 +15,7 @@ import { Tooltips } from './ui/tooltip';
 import { Overlays, type ModalHandle } from './ui/overlay';
 import { openSettings } from './ui/settings';
 import { mountScreen } from './screens';
+import { settleFinishedRun } from './logic/flow';
 
 type QuickBattleOpts = Parameters<RunApi['quickBattleSetup']>[0];
 
@@ -205,6 +206,12 @@ export class AppShell implements AppCtx {
   }
 
   startRun(opts: { house: HouseId; tier: number; seed?: number }): void {
+    // A finished run that never showed its March End is banked before newRun overwrites the save.
+    const old = this.run;
+    if (old?.over) {
+      this.guard('endRun', () => settleFinishedRun(this.api, old, this.meta));
+      this.run = null;
+    }
     const run = this.guard('newRun', () => this.api.newRun(this.meta, opts));
     if (!run) return;
     this.run = run;
@@ -295,6 +302,13 @@ export class AppShell implements AppCtx {
     };
     window.addEventListener('pointerdown', unlock, { capture: true });
     window.addEventListener('keydown', unlock, { capture: true });
+
+    // RTS players right-click by habit: no browser menu on any screen, except in text fields.
+    window.addEventListener('contextmenu', (e) => {
+      const t = e.target;
+      if (t instanceof Element && t.closest('input, textarea, [contenteditable]:not([contenteditable="false"])')) return;
+      e.preventDefault();
+    });
 
     window.addEventListener('keydown', (e) => {
       if (this.currentId === 'battle') return;

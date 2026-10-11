@@ -106,16 +106,17 @@ export function mountSummary(app: AppCtx, sum: RunSummary): ScreenHandle {
           h('div', { class: 'cl-total' }, h('span', null, 'Earned'), h('span', { class: 'renown-v' }, glyph('laurel'), totalV)),
           h('div', { class: 'row small muted', style: 'margin-top:.3rem' }, 'You now hold', h('b', { class: 'accent' }, holdV), 'Renown.'),
           nextEl,
-          tierEl,
         ),
         h(
           'section',
           { class: 'panel studs res-panel' },
           h('div', { class: 'panel-title' }, glyph('scroll'), 'Chronicle of the March'),
           h('div', { class: 'stat-grid two' }, stats.map(([k, v]) => h('div', { class: 'stat' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, String(v))))),
+          // The tier unlock sits with the Chronicle so the Renown column stops growing.
+          tierEl,
         ),
       ),
-      h('div', { class: 'res-footer' }, cont),
+      h('div', { class: 'res-footer summary-actions' }, cont),
     ),
   );
 

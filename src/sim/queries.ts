@@ -20,7 +20,7 @@ import { ucore } from './core';
 import { buildingRequirementReason, checkPlacement } from './placement';
 import { canPay, missingReason } from './players';
 import { researchBlockReason, trainBlockReason } from './production';
-import { buildingStats, hasFlag, unitStats } from './stats';
+import { buildingStats, hasFlag, researchCost, unitStats } from './stats';
 import { isEntitySeen, isEntityVisible as entityVisible, isTileExplored as tileExplored, isTileVisible as tileVisible } from './vision';
 import type {
   Building,
@@ -199,13 +199,14 @@ export function researchOptions(world: World, building: Building): CommandOption
     const def = RESEARCH[id];
     const blocked = researchBlockReason(world, building, id);
     const busyHere = building.research?.id === id;
-    const reason = busyHere ? 'In progress' : (blocked ?? missingReason(p, def.cost));
+    const cost = researchCost(world, PLAYER, id);
+    const reason = busyHere ? 'In progress' : (blocked ?? missingReason(p, cost));
     const opt: CommandOption = {
       kind: 'research',
       id,
       label: def.name,
       hotkey: def.hotkey,
-      cost: { ...def.cost },
+      cost,
       enabled: !reason,
       reason,
       tooltip: `${def.name}\n${def.desc}\nResearch ${def.time} s${def.temper ? '\nOne Temper per battle: starting it locks the other two.' : ''}`,

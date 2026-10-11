@@ -6,7 +6,7 @@ import { RESOLVE } from '../../data/balance';
 import { RESOURCE_NAMES } from '../../data/text';
 import type { ResourceBag, ResourceType, World } from '../../sim/types';
 import { PLAYER, RESOURCE_TYPES } from '../../sim/types';
-import { h, setBgImage, setHtml, setText, toggleClass } from '../dom';
+import { h, setBgImage, setHidden, setHtml, setText, toggleClass } from '../dom';
 import { formatClock, formatRate } from '../format';
 import { GLYPHS, iconSrc } from '../glyphs';
 import { SPEED_STEPS } from '../loop';
@@ -47,6 +47,8 @@ export class TopBar {
   private readonly popVal: HTMLElement;
   private readonly popBox: HTMLElement;
   private readonly clock: HTMLElement;
+  /** Compact amber "Paused · F2 to resume" pill beside the clock (replaces the old centre label). */
+  readonly pausePill: HTMLElement;
   private readonly resolveBox: HTMLElement;
   private readonly speedBtns: HTMLButtonElement[] = [];
   private readonly pauseBtn: HTMLButtonElement;
@@ -87,6 +89,11 @@ export class TopBar {
     const mid = h('div', 'bt-top-mid', this.el);
     this.clock = h('div', 'bt-clock', mid, '0:00');
     ctx.tooltip.bind(this.clock, () => ({ title: 'Battle clock', body: 'Starts after the Kindle countdown.' }));
+    this.pausePill = h('button', 'bt-pause-pill bt-hidden', mid);
+    (this.pausePill as HTMLButtonElement).type = 'button';
+    setHtml(this.pausePill, `${GLYPHS.pause}<span>Paused · F2 to resume</span>`);
+    this.pausePill.addEventListener('click', () => ctx.actions.togglePause());
+    ctx.tooltip.bind(this.pausePill, () => ({ title: 'Paused', hotkey: 'F2', body: 'Orders are still accepted.' }));
 
     const right = h('div', 'bt-top-right', this.el);
     this.resolveBox = h('div', 'bt-resolve', right);
@@ -100,10 +107,8 @@ export class TopBar {
     for (const s of SPEED_STEPS) {
       const b = h('button', 'bt-btn bt-speed-btn', speeds, `${s}×`);
       b.type = 'button';
-      b.addEventListener('click', () => {
-        ctx.actions.setSpeed(s);
-        ctx.ui.paused = false;
-      });
+      // Changing speed keeps the pause state (AoE2): a paused player can pick 2× and plan on.
+      b.addEventListener('click', () => ctx.actions.setSpeed(s));
       ctx.tooltip.bind(b, () => ({ title: `Speed ${s}×`, hotkey: '− / =' }));
       this.speedBtns.push(b);
     }
@@ -122,6 +127,11 @@ export class TopBar {
     setHtml(menuBtn, GLYPHS.menu);
     menuBtn.addEventListener('click', () => cb.openMenu());
     ctx.tooltip.bind(menuBtn, () => ({ title: 'Menu', hotkey: 'Esc' }));
+  }
+
+  /** Show the pause pill (active pause, no menu, battle ongoing). */
+  setPaused(on: boolean): void {
+    setHidden(this.pausePill, !on);
   }
 
   /** Cheap per-frame text (diffed). */

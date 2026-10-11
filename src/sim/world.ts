@@ -13,7 +13,8 @@
  *  8. building defensive fire (Hearth, towers, Thornspires)
  *  9. remove dead entities from live lists
  * 10. every 4th tick: nav.updateFog(world)
- * 11. outcome checks (defeat when the Hearth dies unless Last Stand; victory is set by encounter)
+ * 11. outcome checks (defeat when the Hearth dies unless Last Stand or the objective was met this
+ *     same tick; victory is set by encounter)
  */
 import { START, parSeconds } from '../data/balance';
 import { Rng, hashString } from '../core/rng';
@@ -26,6 +27,7 @@ import { stepDefense } from './defense';
 import * as encounter from './encounter';
 import { applyConstruction, passiveIncome } from './economy';
 import { spawnBuilding, spawnResource, spawnUnit } from './entities';
+import type { SpawnUnitOpts } from './entities';
 import { createNavGrid } from './nav/grid';
 import { exploreCircle, createFog, updateFog } from './nav/fog';
 import { stepMovement } from './nav/movement';
@@ -62,9 +64,17 @@ function cloneMap(m: GameMap): GameMap {
   };
 }
 
-/** Starting units placed in rings around the Hearth (no unit overlap). */
-function placeAround(world: World, hearth: Building, type: PlayerUnitId, opts: { rank?: 0 | 1 | 2 | 3; kills?: number; carried?: boolean; hpPct?: number }): void {
-  const spot = findSpawnTile(world, hearth, 10) ?? { x: hearth.x, y: hearth.y + hearth.h / 2 + 0.5 };
+/**
+ * Starting units placed in rings around the Hearth (no unit overlap). Tillers gather below the
+ * Hearth; every other unit (free Courser, Warden, Retinue, Sellswords) on the far side, so a box
+ * dragged over the Tillers selects only Tillers (box priority is military first, GDD §O).
+ */
+function placeAround(world: World, hearth: Building, type: PlayerUnitId, opts: SpawnUnitOpts): void {
+  const tiller = type === 'tiller';
+  const pref = tiller ? undefined : { x: hearth.x, y: hearth.ty - 2 };
+  const spot =
+    findSpawnTile(world, hearth, 10, pref?.x, pref?.y) ??
+    (tiller ? { x: hearth.x, y: hearth.ty + hearth.h + 0.5 } : { x: hearth.x, y: hearth.ty - 0.5 });
   spawnUnit(world, type, PLAYER, spot.x, spot.y, opts);
 }
 
@@ -137,7 +147,7 @@ export function createWorld(setup: BattleSetup, gen: GeneratedMap, opts?: { skip
   const tillers = START.tillers + (extra.get('tiller') ?? 0);
   extra.delete('tiller');
   for (let i = 0; i < tillers; i++) placeAround(world, hearth, 'tiller', {});
-  for (let i = 0; i < START.coursers; i++) placeAround(world, hearth, 'courser', {});
+  for (let i = 0; i < START.coursers; i++) placeAround(world, hearth, 'courser', { free: true });
   placeAround(world, hearth, 'warden', { hpPct: setup.wardenHpPct });
   for (const [type, n] of extra) for (let i = 0; i < n; i++) placeAround(world, hearth, type, {});
   const carried = (list: CarriedUnit[]): void => {
@@ -245,10 +255,14 @@ export function stepWorld(world: World): void {
   // 10. Fog at 5 Hz.
   if (world.tick % 4 === 0) updateFog(world);
 
-  // 11. Defeat.
+  // 11. Defeat. Victory is checked first: the last Nest (or the Regent) and the Hearth falling in
+  // the same tick is a victory.
   if (world.outcome === 'ongoing') {
     const h = world.hearthId ? world.entities.get(world.hearthId) : undefined;
-    if (!h || !h.alive) endBattle(world, 'defeat');
+    if (!h || !h.alive) {
+      if (c.encounterOn) encounter.checkVictoryNow(world);
+      if (world.outcome === 'ongoing') endBattle(world, 'defeat');
+    }
   }
 }
 
@@ -272,6 +286,8 @@ export function buildBattleResult(world: World, outcome: BattleResult['outcome']
   const survivors: CarriedUnit[] = [];
   for (const u of world.units) {
     if (!u.alive || u.owner !== PLAYER || !isMilitaryClass(u.cls)) continue;
+    // The free scout Courser joins the Retinue only once it has earned Rank I.
+    if (u.free && u.rank < 1) continue;
     survivors.push({ type: u.type as PlayerUnitId, rank: u.rank, kills: u.kills });
   }
   const base = {

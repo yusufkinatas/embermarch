@@ -387,7 +387,10 @@ function returnTrip(world: World, u: Unit, o: Extract<Order, { type: 'gather' }>
 // Deposit order
 // ---------------------------------------------------------------------------
 
-/** After deposit / build / repair: next queued order, else the remembered gather job, else idle. */
+/**
+ * After deposit / build / repair: next queued order, else the remembered gather job, else the same
+ * resource within 10 tiles of that job when it ran out meanwhile, else idle (with the idle alert).
+ */
 export function resumeAfterWork(world: World, u: Unit, built?: Building): void {
   if (u.queue.length > 0) {
     completeOrder(world, u);
@@ -400,6 +403,15 @@ export function resumeAfterWork(world: World, u: Unit, built?: Building): void {
   if (u.job && resolveTarget(world, u.job)) {
     startOrder(world, u, { type: 'gather', target: u.job });
     return;
+  }
+  if (u.job) {
+    const old = ucore(world, u).lastSource ?? { ...oldPosition(world, u.job), source: sourceOf(world, u.job) ?? 'thicket' };
+    const alt = findAlternative(world, u, old.source, old.x, old.y, GATHER.resumeSearchRadius, u.job);
+    if (alt) {
+      startOrder(world, u, { type: 'gather', target: alt });
+      return;
+    }
+    u.job = null;
   }
   completeOrder(world, u);
   if (u.type === 'tiller' && u.order.type === 'idle') raiseIdleAlert(world, u);

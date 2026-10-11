@@ -6,6 +6,9 @@ import type { BoonId } from '../sim/types';
 import type { BoonDef } from './types';
 import { INCOME } from './balance';
 
+/** Ember Tithe: Ember costs −15%. Research applies it through sim-core researchCost (flag ember_tithe). */
+export const EMBER_TITHE_COST_PCT = -15;
+
 export const BOONS: Record<BoonId, BoonDef> = {
   harvest_songs: {
     id: 'harvest_songs',
@@ -188,7 +191,7 @@ export const BOONS: Record<BoonId, BoonDef> = {
     tags: ['Bow', 'Ember'],
     kind: 'rule',
     pool: 'base',
-    desc: 'Bowman and Outrider hits burn (2/s for 3 s) and use structure multiplier 0.4.',
+    desc: 'Bowman and Outrider hits burn (2/s for 3 s) and deal double damage to buildings.',
     effects: [
       { kind: 'flag', flag: 'firebrand' },
       { kind: 'stat', sel: { units: ['bowman', 'outrider'] }, stat: 'structMod', set: 0.4 },
@@ -291,11 +294,11 @@ export const BOONS: Record<BoonId, BoonDef> = {
     tags: ['Ember', 'Econ'],
     kind: 'rule',
     pool: 'base',
-    desc: '+1.2 Ember per second. Ember costs −15%.',
+    desc: '+1.2 Ember per second. Ember costs −15% (units, buildings and research).',
     effects: [
       { kind: 'flag', flag: 'ember_tithe', value: INCOME.emberTithePerSec },
-      { kind: 'cost', sel: { allUnits: true }, res: 'ember', pct: -15 },
-      { kind: 'cost', sel: { allBuildings: true }, res: 'ember', pct: -15 },
+      { kind: 'cost', sel: { allUnits: true }, res: 'ember', pct: EMBER_TITHE_COST_PCT },
+      { kind: 'cost', sel: { allBuildings: true }, res: 'ember', pct: EMBER_TITHE_COST_PCT },
     ],
   },
 };

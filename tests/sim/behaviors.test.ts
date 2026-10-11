@@ -5,12 +5,18 @@
 import { describe, expect, it } from 'vitest';
 import { BOONS } from '../../src/data/boons';
 import { RESEARCH } from '../../src/data/research';
+import { THORNSPIRE } from '../../src/data/balance';
+import { BUILDINGS } from '../../src/data/buildings';
 import { computeDamagePacket, dealAbilityDamage } from '../../src/sim/combat';
 import { spawnBuilding, spawnUnit } from '../../src/sim/entities';
 import { orderUnit } from '../../src/sim/orders';
-import type { World } from '../../src/sim/types';
+import { generateMap } from '../../src/mapgen';
+import { quickBattleSetup } from '../../src/run';
+import { edgeDistance } from '../../src/sim/nav/geometry';
+import { createWorld, issueCommand } from '../../src/sim/world';
+import type { Unit, World } from '../../src/sim/types';
 import { ENEMY, PLAYER } from '../../src/sim/types';
-import { clearUnits, makeWorld, step } from './helpers';
+import { clearUnits, makeWorld, spawnGroup, step, stepUntil } from './helpers';
 
 function arena(over = {}): World {
   const w = makeWorld(over);
@@ -168,5 +174,115 @@ describe('boon hooks', () => {
     expect(p.res.timber - r0.timber).toBe(100);
     dealAbilityDamage(w, spire, 99999, 0);
     expect(p.res.timber - r0.timber).toBe(200);
+  });
+});
+
+describe('structure multiplier below 0.5: no structure auto-targeting (GDD §F)', () => {
+  const SPIRE_RANGE = BUILDINGS.thornspire.attack!.range;
+  const ids = (us: Unit[]): number[] => us.map((u) => u.id);
+
+  it('Bowmen attack-moving past a Thornspire do not stop to shoot it and reach the destination', () => {
+    const w = arena();
+    const spire = spawnBuilding(w, 'thornspire', ENEMY, 30, 30);
+    const bows = spawnGroup(w, 'bowman', PLAYER, 5, 20, 30.5);
+    const dest = { x: spire.x + 4, y: spire.y };
+    expect(issueCommand(w, { type: 'attackMove', unitIds: ids(bows), x: dest.x, y: dest.y }).ok).toBe(true);
+    const arrivedAt = new Map<number, number>();
+    for (let i = 0; i < 20 * 25 && arrivedAt.size < bows.length; i++) {
+      step(w, 0.05);
+      for (const b of bows) {
+        if (!arrivedAt.has(b.id) && b.order.type !== 'attackMove') arrivedAt.set(b.id, Math.hypot(b.x - dest.x, b.y - dest.y));
+      }
+    }
+    expect(arrivedAt.size).toBe(5);
+    for (const d of arrivedAt.values()) expect(d).toBeLessThanOrEqual(1.5);
+    expect(spire.hp).toBe(THORNSPIRE.hp);
+  });
+
+  it('idle Bowmen, Coursers and Firebrand Bowmen near an enemy Nest leave it alone', () => {
+    for (const playerEffects of [[], BOONS.firebrand.effects]) {
+      const w = arena({ playerEffects });
+      const nest = spawnBuilding(w, 'thorn_nest', ENEMY, 30, 30);
+      const bows = spawnGroup(w, 'bowman', PLAYER, 3, 25, 31.5);
+      const c = spawnUnit(w, 'courser', PLAYER, 31.5, 26);
+      for (const u of [...bows, c]) expect(edgeDistance(u, nest)).toBeLessThan(6);
+      step(w, 20);
+      expect(nest.hp).toBe(nest.maxHp);
+    }
+  });
+
+  it('idle Bowmen shot by a Thornspire step out of its range within 5 s and stay out', () => {
+    const w = arena();
+    const spire = spawnBuilding(w, 'thornspire', ENEMY, 30, 30);
+    const bows = spawnGroup(w, 'bowman', PLAYER, 3, 26, 30.5);
+    for (const b of bows) expect(edgeDistance(b, spire)).toBeLessThan(SPIRE_RANGE);
+    const t = stepUntil(w, () => bows.every((b) => edgeDistance(b, spire) > SPIRE_RANGE), 5);
+    expect(t).toBeLessThanOrEqual(5);
+    step(w, 1); // spines already in flight may still land
+    const hp = bows.map((b) => b.hp);
+    step(w, 10);
+    expect(bows.map((b) => b.hp)).toEqual(hp);
+    expect(bows.every((b) => b.alive && b.order.type === 'idle' && edgeDistance(b, spire) > SPIRE_RANGE)).toBe(true);
+    expect(spire.hp).toBe(THORNSPIRE.hp);
+  });
+
+  it('a wall of trees behind them: they step out around it instead of stalling inside the range', () => {
+    // Forest columns x 21-24 cover the straight-out spot west of the spire.
+    const w = makeWorld({}, { forest: { x0: 21, y0: 22, x1: 24, y1: 39 } });
+    clearUnits(w);
+    w.debug.revealAll = true;
+    const spire = spawnBuilding(w, 'thornspire', ENEMY, 30, 30);
+    const bows = spawnGroup(w, 'bowman', PLAYER, 3, 26.5, 30.5);
+    const t = stepUntil(w, () => bows.every((b) => edgeDistance(b, spire) > SPIRE_RANGE), 6);
+    expect(t).toBeLessThanOrEqual(6);
+    step(w, 1);
+    const hp = bows.map((b) => b.hp);
+    step(w, 10);
+    expect(bows.map((b) => b.hp)).toEqual(hp);
+    expect(bows.every((b) => b.alive && edgeDistance(b, spire) > SPIRE_RANGE)).toBe(true);
+  });
+
+  it('real map (Raze d1 seed 3207855854): trees behind them, they still get clear and stop taking spines', () => {
+    // The straight-out spot is behind trees; the first version stalled at the range edge and died.
+    const setup = quickBattleSetup({ objective: 'raze', depth: 1, seed: 3207855854 });
+    const gen = generateMap({ seed: setup.seed, objective: setup.objective, biome: setup.biome, depth: setup.depth, modifiers: setup.modifiers });
+    const w = createWorld(setup, gen, { skipEncounter: true });
+    w.countdown = 0;
+    const h = w.entities.get(w.hearthId)!;
+    const sx = Math.floor(h.x) + 9;
+    const sy = Math.floor(h.y) - 1;
+    const spire = spawnBuilding(w, 'thornspire', ENEMY, sx, sy);
+    const bows = [0, 1, 2, 3, 4].map((i) => spawnUnit(w, 'bowman', PLAYER, sx - 4 + (i % 3) * 0.8, sy + 0.1 + Math.floor(i / 3) * 0.8));
+    const t = stepUntil(w, () => bows.every((b) => edgeDistance(b, spire) > SPIRE_RANGE), 6);
+    expect(t).toBeLessThanOrEqual(6);
+    step(w, 1);
+    const hp = bows.map((b) => b.hp);
+    step(w, 10);
+    expect(bows.map((b) => b.hp)).toEqual(hp);
+    expect(bows.every((b) => b.alive)).toBe(true);
+  });
+
+  it('an explicit attack order from Bowmen on a building still deals damage', () => {
+    const w = arena();
+    const nest = spawnBuilding(w, 'thorn_nest', ENEMY, 30, 30);
+    const bows = spawnGroup(w, 'bowman', PLAYER, 3, 24, 31.5);
+    expect(issueCommand(w, { type: 'attack', unitIds: ids(bows), targetId: nest.id }).ok).toBe(true);
+    step(w, 5);
+    expect(nest.hp).toBeLessThan(nest.maxHp);
+    // A smart right-click on the building works the same way.
+    const nest2 = spawnBuilding(w, 'thorn_nest', ENEMY, 30, 20);
+    expect(issueCommand(w, { type: 'smart', unitIds: ids(bows), x: nest2.x, y: nest2.y, targetId: nest2.id }).ok).toBe(true);
+    step(w, 8);
+    expect(nest2.hp).toBeLessThan(nest2.maxHp);
+  });
+
+  it('idle Ashpikes and Brandbows still auto-acquire a nearby enemy building', () => {
+    for (const type of ['ashpike', 'brandbow'] as const) {
+      const w = arena();
+      const nest = spawnBuilding(w, 'thorn_nest', ENEMY, 30, 30);
+      spawnUnit(w, type, PLAYER, 26, 31.5);
+      step(w, 6);
+      expect(nest.hp, type).toBeLessThan(nest.maxHp);
+    }
   });
 });

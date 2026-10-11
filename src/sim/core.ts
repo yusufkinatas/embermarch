@@ -8,6 +8,7 @@
 import type {
   Entity,
   GatherTarget,
+  MoveIntent,
   Order,
   Owner,
   Unit,
@@ -55,6 +56,8 @@ export interface UnitCore {
   flowKey: string | undefined;
   /** Tick the movement intent was last changed (nav status is stale until movement ran after it). */
   moveSetTick: number;
+  /** Last point goal handed to nav in the current order (nav clears unit.move when it gives up on it). */
+  lastPointGoal: MoveIntent | null;
   /** Last live gather source (position + kind), used to seek a replacement once it is depleted. */
   lastSource: { x: number; y: number; source: 'thicket' | 'tree' | 'ember_seam' | 'grainplot' } | null;
 }
@@ -155,6 +158,7 @@ export function newUnitCore(): UnitCore {
     engageY: 0,
     flowKey: undefined,
     moveSetTick: -1,
+    lastPointGoal: null,
     lastSource: null,
   };
 }

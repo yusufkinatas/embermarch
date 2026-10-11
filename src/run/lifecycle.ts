@@ -87,10 +87,16 @@ export function resolveInterruptedBattle(run: RunState, _meta: MetaSave): string
     saveRun(run);
     return null;
   }
-  run.resolve = Math.max(0, run.resolve - 1);
+  // Last Stands spent before quitting are paid too, or quitting would refund them.
+  const stands = node.type === 'boss' ? Math.max(0, Math.floor(run.bossLastStandsUsed ?? 0)) : 0;
+  run.resolve = Math.max(0, run.resolve - 1 - stands);
+  run.bossLastStandsUsed = 0;
   let msg: string;
   if (node.type === 'boss') {
-    msg = 'The battle for the Briar Throne was abandoned. −1 Resolve.';
+    msg =
+      stands > 0
+        ? `The battle for the Briar Throne was abandoned. −${1 + stands} Resolve (1 for leaving the field, ${stands} for the Last Stand${stands > 1 ? 's' : ''} already spent).`
+        : 'The battle for the Briar Throne was abandoned. −1 Resolve.';
     if (run.resolve <= 0) {
       run.over = 'lost';
       markDone(run, node.id);
@@ -112,6 +118,20 @@ export function resolveInterruptedBattle(run: RunState, _meta: MetaSave): string
   }
   saveRun(run);
   return msg;
+}
+
+/**
+ * The battle screen reports Last Stands as the boss battle spends them, so an abandoned boss
+ * battle can charge them on Continue. Only counts up, only while a boss battle is in progress.
+ */
+export function recordLastStands(run: RunState, used: number): void {
+  if (!run.battleInProgress) return;
+  const node = currentNodeOf(run);
+  if (!node || node.type !== 'boss') return;
+  const n = Math.max(0, Math.floor(used));
+  if (n <= (run.bossLastStandsUsed ?? 0)) return;
+  run.bossLastStandsUsed = n;
+  saveRun(run);
 }
 
 function entryFor(run: RunState, meta: MetaSave, node: RunNode): NodeEntry {

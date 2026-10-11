@@ -2,6 +2,7 @@
  * Short UI strings (GDD §A tone: terse and heraldic; §O HUD, alerts, first-run hints).
  */
 import type { AlertKind, ResourceType, UnitClass } from '../sim/types';
+import { SPENT } from './balance';
 import type { BoonTag, Rarity } from './types';
 
 export const RESOURCE_NAMES: Record<ResourceType, string> = {
@@ -95,7 +96,11 @@ export interface HintDef {
 
 /** First-run hints (§O), each shown once (stored in meta.hintsSeen). */
 export const HINTS: HintDef[] = [
-  { id: 'gather', trigger: 'start', text: 'Drag a box over your Tillers, then right-click a Thicket to gather Grain.' },
+  {
+    id: 'gather',
+    trigger: 'start',
+    text: 'Double-click a Tiller to select every Tiller on screen (or drag a box over them), then right-click a Thicket to gather Grain.',
+  },
   { id: 'train_tiller', trigger: 'first_gather', text: 'Press H to select the Hearth and Q to train more Tillers.' },
   {
     id: 'military_building',
@@ -106,7 +111,7 @@ export const HINTS: HintDef[] = [
   {
     id: 'scout',
     trigger: 'wave1_muster',
-    text: "A wave musters. Get a unit close to its Nest to see what's coming. ` selects your Warden.",
+    text: "A wave musters. Get a unit close to its Nest to see what's coming, but Bramble Pickets guard the contested Seams. ` selects your Warden.",
   },
   { id: 'rally', trigger: 'wave1_launch', text: 'Select the Hearth and press V to rally nearby Tillers. It has a long cooldown.' },
   { id: 'grainplot', trigger: 'near_thickets<30%', text: 'Thickets run out. Grainplots (F) feed 2 Tillers forever.' },
@@ -115,7 +120,11 @@ export const HINTS: HintDef[] = [
     trigger: 'first_military',
     text: 'Ctrl+1 or Alt+1 makes a group, or right-click a group slot. Press 1 to recall it.',
   },
-  { id: 'spent', trigger: 'wave1_broken', text: 'That Nest is Spent and takes extra damage for 30 s. A + click to attack-move.' },
+  {
+    id: 'spent',
+    trigger: 'wave1_broken',
+    text: `That Nest is Spent and takes extra damage for ${SPENT.afterBroken} s after its wave breaks. Select your army, press A and click the Nest.`,
+  },
   {
     id: 'counters',
     trigger: 'first_counter_popup',

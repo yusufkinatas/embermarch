@@ -12,6 +12,8 @@
  */
 import { BUILDINGS } from '../data/buildings';
 import { CLASS_STRUCT_MOD, GATHER, STACKING, VETERANCY } from '../data/balance';
+import { EMBER_TITHE_COST_PCT } from '../data/boons';
+import { RESEARCH } from '../data/research';
 import { UNITS } from '../data/units';
 import type { BuildingDef, UnitDef } from '../data/types';
 import { core } from './core';
@@ -21,6 +23,7 @@ import type {
   Effect,
   EffectFlag,
   Owner,
+  ResearchId,
   ResourceType,
   Selector,
   StatKey,
@@ -297,6 +300,16 @@ export function buildingStats(world: World, owner: Owner, type: BuildingId): Bui
 export function costOf(world: World, owner: Owner, type: UnitId | BuildingId): Cost {
   if (type in UNITS) return unitStats(world, owner, type as UnitId).cost;
   return buildingStats(world, owner, type as BuildingId).cost;
+}
+
+/**
+ * Research cost for the owner. Ember Tithe's Ember −15% applies to research too, rounded like unit
+ * and building costs (round(base × (1 + pct/100))).
+ */
+export function researchCost(world: World, owner: Owner, id: ResearchId): Cost {
+  const base = RESEARCH[id].cost;
+  if (!base.ember || !hasFlag(world, owner, 'ember_tithe')) return { ...base };
+  return { ...base, ember: Math.max(0, Math.round(base.ember * (1 + EMBER_TITHE_COST_PCT / 100))) };
 }
 
 const SOURCE_RES: Record<'thicket' | 'tree' | 'ember_seam' | 'grainplot', ResourceType> = {

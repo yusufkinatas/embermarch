@@ -10,7 +10,7 @@ import type { BoonId } from '../sim/types';
 import { eligibleDrafts, pickBoon, synergyTags } from './offers';
 import { saveRun } from './persistence';
 import type { MetaSave, PeddlerItem, PeddlerStock, RunState } from './types';
-import { currentNodeOf, makeUnits, withRng } from './util';
+import { currentNodeOf, makeUnits, pluralName, withRng } from './util';
 
 const RARITIES: Rarity[] = ['C', 'R', 'M'];
 
@@ -44,7 +44,7 @@ function boonItem(id: BoonId, meta: MetaSave): PeddlerItem {
  * falls back like reward offers (priced by the Boon's actual rarity).
  */
 function rollBoonItems(rng: Rng, run: RunState, meta: MetaSave, slots: Rarity[], exclude: BoonId[]): PeddlerItem[] {
-  const tags = synergyTags(run);
+  const tags = synergyTags(run, meta);
   const items: PeddlerItem[] = [];
   const taken = [...exclude];
   for (const r of slots) {
@@ -139,7 +139,7 @@ export function rerollPeddler(run: RunState, meta: MetaSave): { ok: boolean; rea
   if (run.crowns < cost) return { ok: false, reason: `Requires ${cost} Crowns` };
   const shown = stock.items.filter((it) => it.kind === 'boon' && it.boon).map((it) => it.boon as BoonId);
   withRng(run, (rng) => {
-    const tags = synergyTags(run);
+    const tags = synergyTags(run, meta);
     const fresh: BoonId[] = [];
     for (const { it, i } of slots) {
       const rarity = BOONS[it.boon as BoonId].rarity;
@@ -155,11 +155,4 @@ export function rerollPeddler(run: RunState, meta: MetaSave): { ok: boolean; rea
   stock.rerollCost = rerollPrice(stock.rerolls, meta);
   saveRun(run);
   return { ok: true };
-}
-
-/** "Bowman" → "Bowmen", "Ashpike" → "Ashpikes". */
-function pluralName(name: string): string {
-  if (/man$/.test(name)) return `${name.slice(0, -3)}men`;
-  if (/s$/.test(name)) return name;
-  return `${name}s`;
 }

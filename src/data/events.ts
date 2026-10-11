@@ -37,7 +37,7 @@ export const EVENTS: Record<EventId, EventDef> = {
       {
         id: 'bargain',
         label: 'Strike a bargain',
-        desc: `Lose ${N.thorn_smith.resolveCost} Resolve. Pick 1 of ${N.thorn_smith.rareOptions} Rare Boons. Hidden at 1 Resolve.`,
+        desc: `Lose ${N.thorn_smith.resolveCost} Resolve. Pick 1 of ${N.thorn_smith.rareOptions} Rare Boons.`,
       },
       {
         id: 'mercy',

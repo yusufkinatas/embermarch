@@ -10,6 +10,7 @@ import type { CommandOption } from '../../sim/queries';
 import { clearChildren, h, setBgImage, setHtml, setStyle, setText, toggleClass } from '../dom';
 import { costEntries, formatSeconds } from '../format';
 import { GLYPHS, iconSrc, isIconKind, optionGlyph, type GlyphName } from '../glyphs';
+import { hotkeyLabel } from '../keys';
 import type { HudContext } from './context';
 
 const HOUSE_GLYPH: Record<HouseId, GlyphName> = { ardent: 'horn', tallow: 'hymn', grimbrand: 'firepot', lowmere: 'volley' };
@@ -80,14 +81,16 @@ export class CommandCard {
       btn.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
         if (e.button !== 0) return;
-        const opt = this.options.find((o) => o.slot === i);
+        // Resolve the option at event time: the painted card refreshes at ~10 Hz and may still show
+        // the previous selection's commands (` then H then a quick click must train, not cast).
+        const opt = this.optionAt(i);
         if (!opt) return;
         if (opt.kind === 'order') this.runOrder(opt.id);
         else ctx.actions.executeOption(opt, e.shiftKey);
       });
       btn.addEventListener('contextmenu', (e) => e.preventDefault());
       ctx.tooltip.bind(btn, () => {
-        const opt = this.options.find((o) => o.slot === i);
+        const opt = this.optionAt(i);
         if (!opt) return null;
         if (opt.kind === 'order') return { title: opt.label, hotkey: opt.hotkey, body: opt.tooltip, footer: opt.id === 'attackMove' ? 'Shift+click queues it.' : undefined };
         const res = ctx.world.players[PLAYER].res;
@@ -107,9 +110,19 @@ export class CommandCard {
     }
   }
 
+  /** The card for the current selection, computed now (same source as update()). */
+  private freshOptions(): CardItem[] {
+    return withLocalOrders(this.ctx.actions.card(), this.ctx.actions.selectedUnits().length > 0);
+  }
+
+  /** The option in a slot for the selection as it is right now. */
+  optionAt(slot: number): CardItem | undefined {
+    return this.freshOptions().find((o) => o.slot === slot);
+  }
+
   update(): void {
     const { world, ui } = this.ctx;
-    this.options = withLocalOrders(this.ctx.actions.card(), this.ctx.actions.selectedUnits().length > 0);
+    this.options = this.freshOptions();
     const res = world.players[PLAYER].res;
     const queued = this.queuedCounts();
     for (let i = 0; i < 10; i++) {
@@ -124,6 +137,7 @@ export class CommandCard {
           clearChildren(s.cost);
           s.costKey = '';
         }
+        toggleClass(s.btn, 'cost3', false);
         setStyle(s.cd, '--p', '0');
         setText(s.cdText, '');
         setText(s.badge, '');
@@ -131,7 +145,7 @@ export class CommandCard {
         toggleClass(s.btn, 'active', false);
         continue;
       }
-      setText(s.key, opt.hotkey);
+      setText(s.key, hotkeyLabel(opt.hotkey));
       if (opt.kind === 'order') {
         this.fillOrder(s, opt);
         continue;
@@ -143,6 +157,8 @@ export class CommandCard {
       if (costKey !== s.costKey) {
         s.costKey = costKey;
         clearChildren(s.cost);
+        // Three costs (Outrider: Grain, Timber, Ember) take two lines so nothing is clipped.
+        toggleClass(s.btn, 'cost3', entries.length >= 3);
         for (const c of entries) {
           const item = h('span', `bt-cost-item res-${c.res}${res[c.res] < c.amount ? ' short' : ''}`, s.cost);
           const ic = h('i', 'bt-res-ic', item);
@@ -170,6 +186,7 @@ export class CommandCard {
       clearChildren(s.cost);
       s.costKey = '';
     }
+    toggleClass(s.btn, 'cost3', false);
     toggleClass(s.btn, 'disabled', false);
     toggleClass(s.btn, 'unaffordable', false);
     setStyle(s.cd, '--p', '0');

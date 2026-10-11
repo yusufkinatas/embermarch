@@ -23,7 +23,7 @@ import { emit, isFootprintVisible, liveBuilding, liveUnit } from './geom';
 import { initEncounter as init } from './init';
 import { onLordDamaged, lordRise, tickNoble } from './noble';
 import { onHeartDestroyed, tickBoss } from './boss';
-import { addPlunder, checkVictory, encounterResult, tickBeacons, tickCaches } from './objectives';
+import { addPlunder, checkVictory, encounterResult, isVictory, tickBeacons, tickCaches } from './objectives';
 import { aiOf, getState, type EncRuntime, type NestRec } from './state';
 import type { EncounterResult, EncounterView } from './types';
 import { buildView } from './view';
@@ -54,6 +54,24 @@ export function tickEncounter(world: World): void {
   tickCaches(world, st);
   tickBeacons(world, st);
   checkVictory(world, st);
+}
+
+/**
+ * Run the objective's victory check now (outside tickEncounter). sim-core calls it before declaring
+ * a defeat, so the last Nest (or the Regent) and the Hearth falling in the same tick is a victory.
+ * Returns true if the battle is won.
+ */
+export function checkVictoryNow(world: World): boolean {
+  const st = getState(world);
+  if (!st) return false;
+  checkVictory(world, st);
+  return world.outcome === 'victory';
+}
+
+/** Is the objective's victory condition met right now (e.g. the Regent was slain this tick)? Does not end the battle. */
+export function victoryConditionMet(world: World): boolean {
+  const st = getState(world);
+  return !!st && world.outcome === 'ongoing' && isVictory(world, st);
 }
 
 /**

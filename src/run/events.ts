@@ -4,12 +4,12 @@
  */
 import { BOONS, CAMP, CAMP_TEXT, EVENTS, EVENT_IDS, EVENT_NUMBERS, MODIFIERS } from '../data';
 import type { EventChoiceId } from '../data';
-import type { EventId } from '../sim/types';
+import type { BoonId, DraftId, EventId } from '../sim/types';
 import { eligibleBoons, eligibleDrafts } from './offers';
 import { saveRun } from './persistence';
 import { boonStep, draftStep, grantRandomBoon, queueStep } from './rewards';
 import type { CampOption, EventOutcome, EventView, MetaSave, RunState } from './types';
-import { addCrowns, currentNodeOf, makeUnits, markDone, nonBossBattleAhead, rankedUp, withRng } from './util';
+import { addCrowns, cloneUnits, currentNodeOf, makeUnits, markDone, nonBossBattleAhead, rankedUp, withRng } from './util';
 
 const E = EVENT_NUMBERS;
 
@@ -78,11 +78,35 @@ export function chooseEventOption(run: RunState, meta: MetaSave, choiceId: strin
   const state = choiceState(run, meta, event, choiceId);
   if (!state.enabled) throw new Error(state.reason ?? 'Choice unavailable');
 
+  const before = snapshotGrants(run);
   const text = applyEventChoice(run, meta, event, choiceId as EventChoiceId);
   markDone(run, node.id);
   run.currentEvent = null;
   saveRun(run);
-  return { text };
+  return withGrants({ text }, before, run);
+}
+
+interface GrantSnapshot {
+  boons: BoonId[];
+  drafts: DraftId[];
+  sellswords: number;
+}
+
+function snapshotGrants(run: RunState): GrantSnapshot {
+  return { boons: [...run.boons], drafts: [...run.drafts], sellswords: run.sellswords.length };
+}
+
+/** Attach what a choice granted or took (Boons, Drafts, Sellswords) so screens can show cards. */
+function withGrants(out: EventOutcome, before: GrantSnapshot, run: RunState): EventOutcome {
+  const boons = run.boons.filter((b) => !before.boons.includes(b));
+  const boonsLost = before.boons.filter((b) => !run.boons.includes(b));
+  const drafts = run.drafts.filter((d) => !before.drafts.includes(d));
+  const sellswords = cloneUnits(run.sellswords.slice(before.sellswords));
+  if (boons.length) out.boons = boons;
+  if (boonsLost.length) out.boonsLost = boonsLost;
+  if (drafts.length) out.drafts = drafts;
+  if (sellswords.length) out.sellswords = sellswords;
+  return out;
 }
 
 function applyEventChoice(run: RunState, meta: MetaSave, event: EventId, choice: EventChoiceId): string {
@@ -212,6 +236,7 @@ export function chooseCamp(run: RunState, meta: MetaSave, choice: 'rest' | 'dril
   const node = currentNodeOf(run);
   if (!node || node.type !== 'camp') throw new Error('The current node is not a Camp');
   if (run.nodesDone.includes(node.id)) return { text: '' };
+  const before = snapshotGrants(run);
   let text: string;
   if (choice === 'rest') {
     if (run.resolve < run.maxResolve) {
@@ -242,5 +267,5 @@ export function chooseCamp(run: RunState, meta: MetaSave, choice: 'rest' | 'dril
   }
   markDone(run, node.id);
   saveRun(run);
-  return { text };
+  return withGrants({ text }, before, run);
 }

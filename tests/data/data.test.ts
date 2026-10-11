@@ -352,6 +352,29 @@ describe('effects', () => {
     expect(DOCTRINES.siegebreak.fromDepth).toBe(3);
     expect(DOCTRINES.court.fromDepth).toBe(4);
   });
+
+  it('doctrine counsel: names the doctrine, and has a core-units variant when it names drafted units', () => {
+    const drafted = [...new Set(Object.values(DRAFTS).flatMap((d) => d.units))];
+    // "Bowman" also matches "Bowmen", "Oathshield" matches "Oathshields".
+    const named = (text: string) => drafted.filter((u) => text.includes(UNITS[u].name.replace(/man$/, 'm')));
+    expect(named('Coursers, Ashpikes and Bowmen')).toEqual([]);
+    expect(named('Oathshields and Destriers').sort()).toEqual(['destrier', 'oathshield']);
+    for (const d of Object.values(DOCTRINES)) {
+      expect(d.answer.startsWith(`${d.name}:`), d.id).toBe(true);
+      const inAnswer = named(d.answer);
+      if (inAnswer.length === 0) {
+        expect(d.answerCore, d.id).toBeUndefined();
+        continue;
+      }
+      expect(d.answerCore, d.id).toBeDefined();
+      expect(d.answerCore!.startsWith(`${d.name}:`), d.id).toBe(true);
+      expect(named(d.answerCore!), d.id).toEqual([]);
+      expect([...(d.answerDrafts ?? [])].sort(), d.id).toEqual([...inAnswer].sort());
+    }
+    // Ember Edge is a Forgehall Temper: both are core (no Draft).
+    expect(RESEARCH.ember_edge.building).toBe('forgehall');
+    expect(Object.values(DRAFTS).some((d) => d.buildings.includes('forgehall'))).toBe(false);
+  });
 });
 
 describe('depth formulas (§C)', () => {
@@ -399,12 +422,12 @@ describe('depth formulas (§C)', () => {
 
   it('Holdfast table', () => {
     const table = [
-      [6, 10, 14, 19, 26, 40],
-      [6, 11, 15, 21, 29, 44],
-      [7, 12, 17, 23, 32, 49],
-      [8, 13, 19, 25, 35, 54],
-      [8, 14, 20, 28, 38, 59],
-      [9, 16, 22, 30, 41, 64],
+      [8, 13, 18, 25, 34, 52],
+      [8, 13, 19, 26, 36, 55],
+      [8, 14, 20, 28, 38, 58],
+      [9, 15, 21, 29, 40, 61],
+      [9, 16, 22, 31, 42, 64],
+      [10, 16, 23, 32, 44, 67],
     ];
     table.forEach((row, di) => row.forEach((v, n) => expect(holdfastWaveValue(n + 1, di + 1), `H(${n + 1},${di + 1})`).toBe(v)));
     expect(HOLDFAST.launchTimes).toEqual([60, 105, 150, 195, 240, 285]);

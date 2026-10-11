@@ -5,10 +5,12 @@
 import type { AppCtx, ScreenHandle } from '../types';
 import { NODE_NAMES, REWARD_NAMES } from '../../data/text';
 import { h, roman } from '../dom';
-import { glyph, MODIFIER_KIND_COLOR, NODE_GLYPH, REWARD_GLYPH } from '../ui/glyphs';
+import { glyph, MODIFIER_KIND_COLOR, NODE_GLYPH, OBJECTIVE_GLYPH, REWARD_GLYPH } from '../ui/glyphs';
+import { OBJECTIVES } from '../../data/objectives';
 import { runHeader } from '../ui/header';
 import { buildMapView } from '../ui/mapView';
 import { currentColumn, traveledEdges } from '../logic/runmap';
+import { openNode } from '../logic/flow';
 
 /** Last traveled edge already drawn in, per run seed (so the ink animates once per step). */
 let lastInked = '';
@@ -17,7 +19,9 @@ function legend(): HTMLElement {
   const types = (['battle', 'elite', 'event', 'peddler', 'camp', 'boss'] as const).map((t) =>
     h('span', { class: `lg-item lg-${t}` }, glyph(NODE_GLYPH[t]), t === 'boss' ? 'Boss' : NODE_NAMES[t]),
   );
-  const rewards = (['boon', 'draft', 'spoils'] as const).map((r) => h('span', { class: 'lg-item lg-reward' }, glyph(REWARD_GLYPH[r]), REWARD_NAMES[r].name));
+  const rewards = (['boon', 'draft', 'spoils'] as const).map((r) => h('span', { class: 'lg-item lg-reward' }, h('span', { class: 'lg-badge lg-badge-reward' }, glyph(REWARD_GLYPH[r])), REWARD_NAMES[r].name));
+  // The objective sigil sits top-left on battle nodes.
+  const objectives = (['raze', 'holdfast', 'beacons'] as const).map((o) => h('span', { class: 'lg-item lg-objective' }, h('span', { class: 'lg-badge' }, glyph(OBJECTIVE_GLYPH[o])), OBJECTIVES[o].name));
   const mods = (['negative', 'positive', 'mixed'] as const).map((k) =>
     h('span', { class: 'lg-item' }, h('i', { class: 'lg-dot', style: `border-color:${MODIFIER_KIND_COLOR[k]}` }), k === 'negative' ? 'Hardship' : k === 'positive' ? 'Boon of the land' : 'Mixed'),
   );
@@ -25,6 +29,8 @@ function legend(): HTMLElement {
     'div',
     { class: 'map-legend' },
     h('div', { class: 'lg-group' }, types),
+    h('span', { class: 'lg-sep' }),
+    h('div', { class: 'lg-group' }, objectives),
     h('span', { class: 'lg-sep' }),
     h('div', { class: 'lg-group' }, h('span', { class: 'lg-item lg-threat' }, glyph('skull'), 'Threat'), rewards),
     h('span', { class: 'lg-sep' }),
@@ -52,7 +58,8 @@ export function mountMap(app: AppCtx): ScreenHandle {
     if (entering) return;
     entering = true;
     app.click();
-    const entry = app.guard('enterNode', () => app.api.enterNode(run, app.meta, nodeId));
+    // Battle nodes open a preview briefing; the route is committed only on Begin Battle.
+    const entry = app.guard('openNode', () => openNode(app.api, run, app.meta, nodeId));
     if (!entry) {
       entering = false;
       return;
@@ -73,7 +80,8 @@ export function mountMap(app: AppCtx): ScreenHandle {
     }
   };
 
-  const view = buildMapView({ run, reachable, animateEdge, tooltips: app.tooltips, onEnter });
+  const rewardText = (nodeId: string): string => app.guard('nodeRewardText', () => app.api.nodeRewardText(run, run.map.nodes[nodeId])) ?? '';
+  const view = buildMapView({ run, reachable, animateEdge, tooltips: app.tooltips, onEnter, rewardText });
   const col = currentColumn(run);
   const total = run.map.columns.length;
   const status =

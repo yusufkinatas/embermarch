@@ -34,10 +34,11 @@ describe('Quit to Title cost text (§B Autosave)', () => {
 });
 
 describe('HUD scale', () => {
-  it('is 1 at 1280×720, grows to 1.3 at 1080p and shrinks a little below 720p', () => {
+  it('is 1 at 1280×720, grows with the viewport to 1.6 at 1440p (B11) and shrinks a little below 720p', () => {
     expect(hudScale(1280, 720)).toBe(1);
-    expect(hudScale(1920, 1080)).toBe(1.3);
-    expect(hudScale(2560, 1440)).toBe(1.3);
+    expect(hudScale(1920, 1080)).toBe(1.5);
+    expect(hudScale(2560, 1440)).toBe(1.6);
+    expect(hudScale(3840, 2160)).toBe(1.6);
     expect(hudScale(1600, 900)).toBe(1.25);
     expect(hudScale(1024, 600)).toBe(0.85);
   });

@@ -366,7 +366,7 @@
   align-items: center;
   gap: 0.25rem;
   font-family: var(--font-display);
-  font-size: 0.62rem;
+  font-size: max(11px, 0.62rem);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -670,7 +670,9 @@
 
 .toast-stack {
   position: fixed;
-  top: 4.2rem;
+  /* Bottom centre: page titles sit right under the run header / top bar on every screen, and a
+     toast there covered them (The Peddler, Hall of Banners). */
+  bottom: 1.6rem;
   left: 50%;
   transform: translateX(-50%);
   z-index: 950;
@@ -703,7 +705,7 @@
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(-0.6rem);
+    transform: translateY(0.6rem);
   }
   to {
     opacity: 1;
@@ -1007,7 +1009,7 @@
   flex: none;
 }
 .rh-group .label-caps {
-  font-size: 0.56rem;
+  font-size: max(11px, 0.56rem);
   letter-spacing: 0.16em;
   line-height: 1;
 }
@@ -1099,4 +1101,9 @@
   max-width: 34rem;
   margin: auto;
   text-align: center;
+}
+
+/* Run header: Sellswords get their own slot next to the Retinue. */
+.rh-sellswords .label-caps {
+  color: #d9b77a;
 }

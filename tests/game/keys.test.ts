@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { resolveKey, shouldPreventDefault, type KeyInput } from '../../src/game/keys';
+import { afterEach, describe, expect, it } from 'vitest';
+import { hotkeyLabel, letterFor, loadKeyboardLayout, resolveKey, setKeyboardLayout, shouldPreventDefault, type KeyInput } from '../../src/game/keys';
 
 function k(code: string, mods: Partial<KeyInput> = {}): KeyInput {
   return { code, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...mods };
@@ -31,7 +31,8 @@ describe('resolveKey (GDD §O, bound on e.code)', () => {
   });
 
   it('maps special keys', () => {
-    expect(resolveKey(k('Backquote'))).toEqual({ type: 'selectWarden' });
+    expect(resolveKey(k('Backquote'))).toEqual({ type: 'selectWarden', add: false });
+    expect(resolveKey(k('Backquote', { shiftKey: true }))).toEqual({ type: 'selectWarden', add: true });
     expect(resolveKey(k('Period'))).toEqual({ type: 'idleTiller' });
     expect(resolveKey(k('Comma'))).toEqual({ type: 'allMilitary' });
     expect(resolveKey(k('Space'))).toEqual({ type: 'jumpAlert' });
@@ -58,5 +59,37 @@ describe('resolveKey (GDD §O, bound on e.code)', () => {
     expect(shouldPreventDefault(alt1, resolveKey(alt1))).toBe(true);
     const cmdR = k('KeyR', { metaKey: true });
     expect(shouldPreventDefault(cmdR, resolveKey(cmdR))).toBe(false);
+  });
+});
+
+describe('hotkey labels follow the keyboard layout (B14)', () => {
+  afterEach(() => setKeyboardLayout(null));
+
+  it('without a layout map, labels are the QWERTY letters', () => {
+    expect(hotkeyLabel('Z')).toBe('Z');
+    expect(hotkeyLabel('Y')).toBe('Y');
+    expect(hotkeyLabel('`')).toBe('`');
+    expect(hotkeyLabel('− / =')).toBe('− / =');
+    expect(letterFor('KeyA')).toBe('A');
+  });
+
+  it('QWERTZ: the research key bound to KeyZ is printed as Y (and Siegeyard KeyY as Z)', () => {
+    setKeyboardLayout(new Map([['KeyZ', 'y'], ['KeyY', 'z'], ['Backquote', '^']]));
+    expect(hotkeyLabel('Z')).toBe('Y');
+    expect(hotkeyLabel('Y')).toBe('Z');
+    expect(hotkeyLabel('Q')).toBe('Q'); // not in the map: QWERTY fallback
+    expect(hotkeyLabel('`')).toBe('^');
+    // Bindings stay on e.code: KeyZ still resolves to the 'Z' card letter.
+    expect(resolveKey(k('KeyZ'))).toEqual({ type: 'card', letter: 'Z', shift: false });
+  });
+
+  it('reads navigator.keyboard.getLayoutMap once; no keyboard API leaves labels unchanged', async () => {
+    expect(await loadKeyboardLayout({})).toBe(false);
+    expect(hotkeyLabel('A')).toBe('A');
+    const azerty = new Map([['KeyA', 'q'], ['KeyQ', 'a'], ['KeyW', 'z'], ['KeyZ', 'w']]);
+    expect(await loadKeyboardLayout({ keyboard: { getLayoutMap: async () => azerty } })).toBe(true);
+    expect(hotkeyLabel('A')).toBe('Q');
+    expect(hotkeyLabel('Q')).toBe('A');
+    expect(await loadKeyboardLayout({ keyboard: { getLayoutMap: () => Promise.reject(new Error('denied')) } })).toBe(false);
   });
 });

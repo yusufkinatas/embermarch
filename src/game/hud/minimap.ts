@@ -46,14 +46,14 @@ export class Minimap {
     this.wardenTimer = h('b', 'bt-warden-timer', this.wardenBtn);
     const hpBar = h('div', 'bt-mini-hp', this.wardenBtn);
     this.wardenHp = h('div', 'bt-mini-hp-fill', hpBar);
-    this.wardenBtn.addEventListener('click', () => ctx.actions.selectWarden());
+    this.wardenBtn.addEventListener('click', (e) => ctx.actions.selectWarden(e.shiftKey));
     this.wardenBtn.addEventListener('dblclick', () => {
       const w = ctx.world.entities.get(ctx.world.wardenId);
       if (w && w.alive) ctx.actions.centerOn(w.x, w.y);
     });
     ctx.tooltip.bind(this.wardenBtn, () => {
       const left = this.respawnLeft();
-      return { title: 'Warden', hotkey: '`', body: left > 0 ? `Fallen. Returns at the Hearth in ${formatCountdown(left)}.` : 'Click to select, double-click to center.' };
+      return { title: 'Warden', hotkey: '`', body: left > 0 ? `Fallen. Returns at the Hearth in ${formatCountdown(left)}.` : 'Click to select, Shift+click to add, double-click to center.' };
     });
 
     const frame = h('div', 'bt-minimap bt-panel', this.el);
@@ -94,6 +94,11 @@ export class Minimap {
     }
     if (e.button !== 0) return;
     if (ui.targeting?.kind === 'attackMove') {
+      actions.targetAt(w.x, w.y, e.shiftKey);
+      return;
+    }
+    // A map-wide ability (the Hawk) casts where the minimap is clicked instead of jumping the camera.
+    if (ui.targeting?.kind === 'ability' && !Number.isFinite(ui.targeting.range)) {
       actions.targetAt(w.x, w.y, e.shiftKey);
       return;
     }

@@ -40,6 +40,8 @@ export function startOrder(world: World, u: Unit, order: Order): void {
   uc.waitRetried = false;
   uc.kitingUntil = 0;
   if (o.type !== 'move' && o.type !== 'attackMove') uc.flowKey = undefined;
+  // A new order always tries its goal at least once, even one an earlier order gave up on.
+  uc.lastPointGoal = null;
   u.order = o;
   u.targetId = o.type === 'attack' ? o.targetId : 0;
   if (o.type === 'gather') {
