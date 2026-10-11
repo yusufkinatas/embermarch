@@ -10,6 +10,7 @@ import { divider, glyph, type GlyphName } from '../ui/glyphs';
 import { EmberField } from '../ui/embers';
 import { resolvePips } from '../ui/header';
 import { settleFinishedRun } from '../logic/flow';
+import { canFullscreen, isFullscreen, isInstalledApp, toggleFullscreen } from '../../pwa';
 
 function menuButton(label: string, icon: GlyphName, onclick: () => void, opts: { primary?: boolean; sub?: HTMLElement | null; badge?: string } = {}): HTMLButtonElement {
   return h(
@@ -93,6 +94,16 @@ export function mountTitle(app: AppCtx): ScreenHandle {
     }),
   );
   items.push(menuButton('Settings', 'gear', () => app.openSettings()));
+  if (canFullscreen() && !isInstalledApp()) {
+    const fs = menuButton(isFullscreen() ? 'Exit Full Screen' : 'Full Screen', 'flame', () => {
+      app.click();
+      void toggleFullscreen().then(() => {
+        const label = fs.querySelector('.tb-label');
+        if (label) label.textContent = isFullscreen() ? 'Exit Full Screen' : 'Full Screen';
+      });
+    });
+    items.push(fs);
+  }
 
   const stats = app.meta.stats;
   const el = h(
