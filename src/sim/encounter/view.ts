@@ -1,7 +1,7 @@
 /**
  * getEncounterView: read-only HUD summary (§O tracker texts, Wave Horn, boss bar, Nests, dusk).
  */
-import { ASCENDANT, BEACONS, HOLDFAST, parSeconds } from '../../data/balance';
+import { ASCENDANT, BEACONS, BOSS, HOLDFAST, parSeconds } from '../../data/balance';
 import { TEXT } from '../../data/text';
 import { TICK_RATE, type EnemyUnitId, type World } from '../types';
 import { bossView } from './boss';
@@ -39,7 +39,7 @@ export function trackerText(world: World, st: EncRuntime): string {
       return `Kindling ${Math.floor(st.kindling)}/${BEACONS.kindlingTarget}`;
     case 'boss':
       if (st.boss && st.boss.phase === 2) return 'Slay the Briar Regent';
-      return `Burn the Root Hearts ${destroyed}/${total} · ${TEXT.regentWarded}`;
+      return `Burn the Root Hearts ${destroyed}/${total} · Wrath ${fmtClock(Math.max(0, BOSS.wrathTime - world.time))}`;
   }
 }
 
@@ -128,6 +128,7 @@ export function buildView(world: World, st: EncRuntime): EncounterView {
         spent,
         spentRemaining: spent ? (n.spent.until - tick) / TICK_RATE : 0,
         seen: !!n.b.nest?.seen,
+        dir: n.dir,
       };
     }),
     ascendantIn: ascendantIn(world, st),

@@ -45,6 +45,13 @@ export interface EnemyAI extends EnemyUnitAI {
   waveUid: number;
   /** Advance goal entity for units without a wave (homeless garrison). */
   goalId: number;
+  /**
+   * Wave commit rule (ENEMY_AI.commitAfter): ticks spent on a non-goal player building with no player
+   * army near, the tick of the last commit check, and whether the unit now marches on its goal.
+   */
+  siegeTicks?: number;
+  siegeTick?: number;
+  committed?: boolean;
 }
 
 export interface NestRec {
@@ -57,8 +64,10 @@ export interface NestRec {
   musterX: number;
   musterY: number;
   alive: boolean;
-  /** Compass direction from the Hearth, e.g. "NE". */
+  /** Compass direction from the Hearth, e.g. "NE" ("near NE" / "far NE" when two Nests share it). */
   dir: string;
+  /** Spent distance extra in seconds (formulas.spentExtra of the Hearth distance). */
+  spentExtra: number;
   garrisonCap: number;
   garrison: number[];
   /** Seconds accumulated toward the next value point. */
@@ -185,6 +194,8 @@ export interface BossState {
   throneY: number;
   phase: 1 | 2;
   wrath: boolean;
+  /** The 30 s Wrath warning was given. */
+  wrathWarned?: boolean;
   enraged: boolean;
   nextLance: number;
   nextBurst: number;

@@ -39,7 +39,7 @@ export const DRAFTS: Record<DraftId, DraftDef> = {
     buildings: ['siegeyard'],
     requiresMeta: null,
     tags: ['Siege'],
-    desc: 'Unlocks the Siegeyard and the Gatebreaker: a ram that tears down Nests.',
+    desc: 'Unlocks the Siegeyard and the Gatebreaker: a ram that tears down Nests. Needs a Forgehall.',
   },
   draft_outriding: {
     id: 'draft_outriding',

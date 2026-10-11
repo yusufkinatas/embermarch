@@ -119,7 +119,7 @@ describe('encounter on a real map', () => {
     runTo(w, 2);
     const regent = w.units.find((u) => u.type === 'briar_regent')!;
     expect(regent.untargetable).toBe(true);
-    expect(getEncounterView(w).trackerText).toBe('Burn the Root Hearts 0/3 · Regent Warded');
+    expect(getEncounterView(w).trackerText).toMatch(/^Burn the Root Hearts 0\/3 · Wrath [78]:\d\d$/);
     for (const n of nestsOf(w)) killEntity(w, n, 0);
     runTo(w, 3);
     expect(getEncounterView(w).boss).toMatchObject({ phase: 2, warded: false });

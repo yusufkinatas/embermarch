@@ -458,19 +458,31 @@ export function rollBiome(rng: Rng, col: number): BiomeId {
   return weightedKey(rng, w);
 }
 
-/** Modifiers for a battle in column `col` (§K). No duplicates; Elites add one negative. */
+/**
+ * Negatives an Elite may be handed on top of its rolls. Blood Moon (waves ×1.3) is left out: on top of
+ * the Antlered Lord it made the steepest jump on the road.
+ */
+export const ELITE_FORCED_NEGATIVES: readonly ModifierId[] = NEGATIVE_MODIFIERS.filter((m) => m !== 'blood_moon');
+
+/**
+ * Modifiers for a battle in column `col` (§K). No duplicates. An Elite carries exactly one negative:
+ * if its random rolls already hold one, no second negative is rolled or added; otherwise one is added
+ * from ELITE_FORCED_NEGATIVES.
+ */
 export function rollModifiers(rng: Rng, col: number, elite: boolean): ModifierId[] {
   const mods: ModifierId[] = [];
   const roll = MODIFIER_ROLLS[col] ?? { first: 0, second: 0 };
+  const negative = (m: ModifierId): boolean => NEGATIVE_MODIFIERS.includes(m);
+  const hasNegative = (): boolean => mods.some(negative);
   const add = (pool: readonly ModifierId[]) => {
-    const left = pool.filter((m) => !mods.includes(m));
+    const left = pool.filter((m) => !mods.includes(m) && !(elite && negative(m) && hasNegative()));
     if (left.length) mods.push(rng.pick(left));
   };
   if (roll.first > 0 && rng.chance(roll.first)) {
     add(MODIFIER_IDS);
     if (roll.second > 0 && rng.chance(roll.second)) add(MODIFIER_IDS);
   }
-  if (elite) add(NEGATIVE_MODIFIERS);
+  if (elite && !hasNegative()) add(ELITE_FORCED_NEGATIVES);
   return mods;
 }
 

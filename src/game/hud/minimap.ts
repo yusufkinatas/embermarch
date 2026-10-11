@@ -94,7 +94,7 @@ export class Minimap {
     }
     if (e.button !== 0) return;
     if (ui.targeting?.kind === 'attackMove') {
-      actions.targetAt(w.x, w.y, e.shiftKey);
+      actions.targetAt(w.x, w.y, e.shiftKey, false);
       return;
     }
     // A map-wide ability (the Hawk) casts where the minimap is clicked instead of jumping the camera.

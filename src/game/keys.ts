@@ -113,36 +113,102 @@ export function resolveKey(k: KeyInput): KeyAction | null {
 // Hotkey labels for the player's keyboard layout (bindings stay on e.code)
 // ---------------------------------------------------------------------------
 
-/** e.code → printed key (e.g. QWERTZ: KeyZ → 'y'), from navigator.keyboard.getLayoutMap(). */
+/** e.code → printed key (e.g. QWERTZ: KeyZ → 'y'), from navigator.keyboard.getLayoutMap() or learned. */
 let layoutMap: ReadonlyMap<string, string> | null = null;
+/** 'api': the Keyboard API (Chromium) supplied the map; 'learned': built from keydown events (Safari, Firefox). */
+let layoutSource: 'api' | 'learned' | null = null;
+/** Built-in table picked from the first tell-tale keydown, plus every printed key seen so far. */
+let builtin: KeyboardTable | null = null;
+const learned = new Map<string, string>();
 
-/** Install (or clear) the layout map used for hotkey labels. */
+export type KeyboardTable = 'qwertz' | 'azerty';
+
+/** Printed keys that differ from US QWERTY (German QWERTZ, French AZERTY), for the keys the HUD names. */
+export const LAYOUT_TABLES: Record<KeyboardTable, Readonly<Record<string, string>>> = {
+  qwertz: { KeyZ: 'y', KeyY: 'z', Minus: 'ß', Equal: '´', Backquote: '^', Semicolon: 'ö', Quote: 'ä', BracketLeft: 'ü', BracketRight: '+', Slash: '-', Comma: ',', Period: '.' },
+  azerty: { KeyQ: 'a', KeyA: 'q', KeyW: 'z', KeyZ: 'w', KeyM: ',', Semicolon: 'm', Comma: ';', Period: ':', Slash: '!', Minus: ')', Equal: '=', Backquote: '²', BracketLeft: '^', BracketRight: '$', Quote: 'ù' },
+};
+
+/** US QWERTY labels for the non-letter keys the HUD names. */
+const QWERTY_PUNCT: Readonly<Record<string, string>> = { Backquote: '`', Minus: '−', Equal: '=', Period: '.', Comma: ',' };
+/** HUD hotkey characters → key codes ('−' is the typographic minus the HUD prints for Minus). */
+const PUNCT_CODES: Readonly<Record<string, string>> = { '`': 'Backquote', '−': 'Minus', '-': 'Minus', '=': 'Equal', '.': 'Period', ',': 'Comma' };
+
+/** Install (or clear) the layout map used for hotkey labels. null also forgets learned keys. */
 export function setKeyboardLayout(map: ReadonlyMap<string, string> | null): void {
   layoutMap = map && map.size ? new Map(map) : null;
+  layoutSource = layoutMap ? 'api' : null;
+  if (!map) {
+    builtin = null;
+    learned.clear();
+  }
 }
 
 /** The character printed on the key with this code, upper-cased; falls back to the QWERTY letter. */
 export function letterFor(code: string): string {
   const k = layoutMap?.get(code);
-  if (k && k.trim()) return k.length === 1 ? k.toUpperCase() : k;
-  return letterOf(code) ?? (code === 'Backquote' ? '`' : code);
+  if (k && k.trim()) {
+    if (k.length !== 1) return k;
+    const up = k.toUpperCase();
+    return up.length === 1 ? up : k; // 'ß' stays 'ß', not 'SS'
+  }
+  return letterOf(code) ?? QWERTY_PUNCT[code] ?? code;
 }
 
 /**
- * Label for a hotkey written as its QWERTY character in data/HUD ('Z', 'Q', '`'). Bindings use
- * e.code, so on QWERTZ the research key 'Z' (KeyZ) is printed as 'Y'. Other labels pass through.
+ * Label for a hotkey written as its QWERTY character in data/HUD ('Z', 'Q', '`', '−'). Bindings use
+ * e.code, so on QWERTZ the research key 'Z' (KeyZ) is printed as 'Y'. "− / =" maps each part.
  */
 export function hotkeyLabel(hotkey: string): string {
+  if (hotkey.includes(' / ')) return hotkey.split(' / ').map(hotkeyLabel).join(' / ');
   if (/^[A-Za-z]$/.test(hotkey)) return letterFor(`Key${hotkey.toUpperCase()}`);
-  if (hotkey === '`') return letterFor('Backquote');
+  const code = PUNCT_CODES[hotkey];
+  if (code) return letterFor(code);
   return hotkey;
+}
+
+export interface KeyEventLike {
+  code: string;
+  key: string;
+  shiftKey?: boolean;
+  altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+}
+
+/**
+ * Without the Keyboard API (Safari, Firefox), learn the layout from keydown events: every unmodified
+ * single-character key records code → key, and the first KeyZ→'y' / KeyY→'z' (QWERTZ) or
+ * KeyQ→'a' / KeyA→'q' (AZERTY) switches in a built-in table for keys not pressed yet (Minus, Equal,
+ * Backquote: dead keys never report their character). Returns true when any label changed.
+ */
+export function learnKeyLayout(k: KeyEventLike): boolean {
+  if (layoutSource === 'api') return false;
+  if (k.ctrlKey || k.altKey || k.metaKey) return false;
+  const key = k.key;
+  if (typeof key !== 'string' || [...key].length !== 1 || !key.trim()) return false;
+  const lower = key.toLowerCase();
+  // Shift+Digit1 is '!': only letters keep their printed identity under Shift.
+  if (k.shiftKey && lower === key.toUpperCase()) return false;
+  const prevTable = builtin;
+  const prevLabel = letterFor(k.code);
+  if (!builtin) {
+    if ((k.code === 'KeyZ' && lower === 'y') || (k.code === 'KeyY' && lower === 'z')) builtin = 'qwertz';
+    else if ((k.code === 'KeyQ' && lower === 'a') || (k.code === 'KeyA' && lower === 'q')) builtin = 'azerty';
+  }
+  learned.set(k.code, lower);
+  const map = new Map<string, string>(builtin ? Object.entries(LAYOUT_TABLES[builtin]) : []);
+  for (const [c, v] of learned) map.set(c, v);
+  layoutMap = map;
+  layoutSource = 'learned';
+  return builtin !== prevTable || letterFor(k.code) !== prevLabel;
 }
 
 interface LayoutNavigator {
   keyboard?: { getLayoutMap?: () => Promise<ReadonlyMap<string, string>> };
 }
 
-/** Read the layout map once (Chromium); without navigator.keyboard the QWERTY labels stay. */
+/** Read the layout map once (Chromium); without navigator.keyboard labels are learned from keydown. */
 export async function loadKeyboardLayout(nav: LayoutNavigator | undefined = typeof navigator !== 'undefined' ? (navigator as LayoutNavigator) : undefined): Promise<boolean> {
   const get = nav?.keyboard?.getLayoutMap;
   if (typeof get !== 'function') return false;

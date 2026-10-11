@@ -116,6 +116,7 @@ export function findAlternative(
   fy: number,
   radius: number,
   exclude: GatherTarget | null,
+  ignoreCap = false,
 ): GatherTarget | null {
   if (source === 'tree') {
     const w = world.map.w;
@@ -130,7 +131,7 @@ export function findAlternative(
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         const tile = y * w + x;
-        if (!isLiveTree(world, tile) || trees[tile] >= GATHER.maxGatherers.tree) continue;
+        if (!isLiveTree(world, tile) || (!ignoreCap && trees[tile] >= GATHER.maxGatherers.tree)) continue;
         if (exclude && exclude.kind === 'tree' && exclude.tile === tile) continue;
         const cx = x + 0.5;
         const cy = y + 0.5;
@@ -181,6 +182,23 @@ export function normaliseTreeTarget(world: World, u: Unit, tile: number): Gather
   const tx = tile % w;
   const ty = (tile - tx) / w;
   return findAlternative(world, u, 'tree', tx + 0.5, ty + 0.5, 6, null);
+}
+
+/**
+ * Rally to a tree tile (or a canopy tile next to trees): the tree itself, else a free tree within 6,
+ * then within GATHER.rallyTreeRadius (10) of the rally tile, else the nearest live tree within 10
+ * even at the gatherer cap (the gather loop re-seeks when crowded). Null only with no live tree
+ * within 10 tiles.
+ */
+export function rallyTreeTarget(world: World, u: Unit, tile: number): GatherTarget | null {
+  const near = normaliseTreeTarget(world, u, tile);
+  if (near) return near;
+  const w = world.map.w;
+  const tx = tile % w;
+  const fx = tx + 0.5;
+  const fy = (tile - tx) / w + 0.5;
+  const r = GATHER.rallyTreeRadius;
+  return findAlternative(world, u, 'tree', fx, fy, r, null) ?? findAlternative(world, u, 'tree', fx, fy, r, null, true);
 }
 
 // ---------------------------------------------------------------------------

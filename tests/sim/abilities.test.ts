@@ -181,6 +181,32 @@ describe('Last Stand (boss only)', () => {
     expect(w.outcome).toBe('defeat');
   });
 
+  it('throws the Briar Regent 6 tiles and roots it for 4 s', () => {
+    const w = makeWorld({ objective: 'boss', isBoss: true, resolve: 1 }, { forest: null, resources: [] });
+    clearUnits(w);
+    const h = hearthOf(w);
+    const regent = spawnUnit(w, 'briar_regent', ENEMY, h.tx + h.w + 1.2, h.y);
+    orderUnit(w, regent, { type: 'attack', targetId: h.id });
+    step(w, 0.5);
+    const x0 = regent.x;
+    const y0 = regent.y;
+    dealAbilityDamage(w, h, 99999, regent.id);
+    expect(w.lastStandsUsed).toBe(1);
+    expect(Math.hypot(regent.x - x0, regent.y - y0)).toBeGreaterThanOrEqual(5);
+    const x1 = regent.x;
+    const y1 = regent.y;
+    expect(regent.buffs.some((b) => b.id === 'rooted')).toBe(true);
+    step(w, 0.1);
+    expect(regent.speed).toBe(0);
+    step(w, 3.7);
+    expect(regent.speed).toBe(0);
+    expect(Math.hypot(regent.x - x1, regent.y - y1)).toBeLessThan(0.05);
+    step(w, 0.4);
+    expect(regent.speed).toBeGreaterThan(0);
+    step(w, 1);
+    expect(Math.hypot(regent.x - x1, regent.y - y1)).toBeGreaterThan(0.5);
+  });
+
   it('never outside the boss battle', () => {
     const w = makeWorld({ resolve: 3 });
     const h = hearthOf(w);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { wardEdgeSegments, blightEdgeTiles, fogAlpha, footprintVisible, GhostTracker, writeBlightPixels, writeFogPixels } from '../../src/render/fogBlight';
+import { boxBlurAlpha, upsampleAlpha, wardEdgeSegments, blightEdgeTiles, fogAlpha, footprintVisible, GhostTracker, writeBlightPixels, writeFogPixels } from '../../src/render/fogBlight';
 import { FixtureBuilder } from '../../src/render/devFixture';
 import type { BattleSetup, GameMap } from '../../src/sim/types';
 
@@ -101,5 +101,51 @@ describe('ghost tracker (enemy structures persist once seen)', () => {
     const g = new GhostTracker();
     g.update(fb.world, () => false);
     expect(g.ghosts.has(nest.id)).toBe(true);
+  });
+});
+
+describe('WebKit fog fallback: upsampleAlpha + boxBlurAlpha (final fix pass B8)', () => {
+  /** A 1-px-per-tile RGBA image with the given alphas. */
+  function tiles(alphas: number[]): Uint8ClampedArray {
+    const d = new Uint8ClampedArray(alphas.length * 4);
+    alphas.forEach((a, i) => d.set([11, 9, 16, a], i * 4));
+    return d;
+  }
+
+  it('upsamples each tile to a soft×soft block; clamp repeats the edge into the margin, else transparent', () => {
+    const src = tiles([255, 0, 0, 128]); // 2×2
+    const W = (2 + 2) * 2;
+    const out = new Float32Array(W * W);
+    upsampleAlpha(src, 2, 2, 2, 1, true, out);
+    expect(out[0]).toBe(255); // margin corner repeats tile (0,0)
+    expect(out[2 * W + 2]).toBe(255); // tile (0,0)
+    expect(out[2 * W + 4]).toBe(0); // tile (1,0)
+    expect(out[(W - 1) * W + (W - 1)]).toBe(128); // far corner repeats tile (1,1)
+    upsampleAlpha(src, 2, 2, 2, 1, false, out);
+    expect(out[0]).toBe(0);
+    expect(out[2 * W + 2]).toBe(255);
+  });
+
+  it('a fully fogged map stays fully fogged right to the clamped border (no edge fade)', () => {
+    const w = 6;
+    const W = (w + 2) * 4;
+    const a = new Float32Array(W * W);
+    upsampleAlpha(tiles(new Array(w * w).fill(255)), w, w, 4, 1, true, a);
+    boxBlurAlpha(a, W, W, 2.4);
+    for (let i = 0; i < a.length; i++) expect(a[i]).toBeCloseTo(255, 3);
+  });
+
+  it('softens a hard fog edge into a monotone ramp', () => {
+    const W = 24;
+    const a = new Float32Array(W * 4);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < W; x++) a[y * W + x] = x < W / 2 ? 255 : 0;
+    boxBlurAlpha(a, W, 4, 2.4);
+    const row = Array.from(a.slice(W, 2 * W));
+    expect(row[0]).toBeCloseTo(255, 3);
+    expect(row[W - 1]).toBeCloseTo(0, 3);
+    for (let x = 1; x < W; x++) expect(row[x]).toBeLessThanOrEqual(row[x - 1] + 1e-3);
+    expect(row[W / 2 - 1]).toBeGreaterThan(100);
+    expect(row[W / 2 - 1]).toBeLessThan(255);
+    expect(row[W / 2]).toBeGreaterThan(0);
   });
 });

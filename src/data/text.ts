@@ -66,7 +66,8 @@ export const ALERT_TEXT: Record<AlertKind, string> = {
 export const TEXT = {
   hornMuster: (wave: number, dir: string) => `The horn sounds in the ${dir}. Wave ${wave} gathers.`,
   greatWave: 'The Great Wave gathers.',
-  waveBroken: (wave: number, dir: string, spent: string) => `Wave ${wave} broken. ${dir} Nest Spent ${spent}`,
+  /** The structure is 'Root Heart' in the boss battle. */
+  waveBroken: (wave: number, dir: string, spent: string, structure = 'Nest') => `Wave ${wave} broken. ${dir} ${structure} Spent ${spent}`,
   ascendantSoon: (t: string) => `Ascendant in ${t}`,
   ridersAhead: 'Riders ahead',
   rootbreakerTrailing: 'Rootbreaker trailing',
@@ -101,7 +102,11 @@ export const HINTS: HintDef[] = [
     trigger: 'start',
     text: 'Double-click a Tiller to select every Tiller on screen (or drag a box over them), then right-click a Thicket to gather Grain.',
   },
-  { id: 'train_tiller', trigger: 'first_gather', text: 'Press H to select the Hearth and Q to train more Tillers.' },
+  {
+    id: 'train_tiller',
+    trigger: 'first_gather',
+    text: 'Press H to select the Hearth and Q to train more Tillers. Scout with your Courser, but keep clear of the purple spires: Bramble Pickets guard the Seams.',
+  },
   {
     id: 'military_building',
     trigger: 'time>=30 && timber>=150 && militaryBuildings==1',
@@ -111,7 +116,7 @@ export const HINTS: HintDef[] = [
   {
     id: 'scout',
     trigger: 'wave1_muster',
-    text: "A wave musters. Get a unit close to its Nest to see what's coming, but Bramble Pickets guard the contested Seams. ` selects your Warden.",
+    text: "A wave musters. Get a unit close to its Nest to see what's coming. The Warden button beside the minimap selects your Warden.",
   },
   { id: 'rally', trigger: 'wave1_launch', text: 'Select the Hearth and press V to rally nearby Tillers. It has a long cooldown.' },
   { id: 'grainplot', trigger: 'near_thickets<30%', text: 'Thickets run out. Grainplots (F) feed 2 Tillers forever.' },
@@ -123,7 +128,7 @@ export const HINTS: HintDef[] = [
   {
     id: 'spent',
     trigger: 'wave1_broken',
-    text: `That Nest is Spent and takes extra damage for ${SPENT.afterBroken} s after its wave breaks. Select your army, press A and click the Nest.`,
+    text: `That Nest is Spent and takes extra damage for at least ${SPENT.afterBroken} s after its wave breaks. Select your army and right-click the Nest. Ashpikes and the Warden burn it; arrows and horses barely scratch it.`,
   },
   {
     id: 'counters',

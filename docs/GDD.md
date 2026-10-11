@@ -133,15 +133,16 @@ The map has 16-22 nodes in total.
 1. Start 4 walkers in col 2 at `rng.int(0,3)` each. Reroll until col 2 has at least 2 distinct lanes.
 2. For cols 2 to 6, each walker steps to `lane + pick(-1,0,+1)`, clamped to 0..3. A diagonal step is rejected if it would cross an existing edge in the same column pair (a→a+1 together with a+1→a). Retry up to 10 times, then step straight (straight never crosses).
 3. Nodes are the union of visited (col, lane) cells and edges are the union of steps. Col 1 links to every col-2 node, and every col-7 node links to the boss.
-4. Accept the layout if cols 2-7 hold 14-20 nodes and every column has 2 or more. Otherwise reroll (50 tries), then fall back to 3 lanes, each with a straight edge plus one diagonal per column.
+4. Accept the layout if cols 2-7 hold 14-20 nodes and every column has 2 or more. It also needs real route choice: a mean of at least 3.6 decisions per start-to-boss path (a decision is a node in cols 1-6 with 2 or more next nodes; the start always is one), and no path may run through 3 or more single-exit nodes in a row among cols 2-6. Otherwise reroll (300 tries), then fall back to 3 lanes, each with a straight edge plus one diagonal per column.
 5. **Type assignment.** Up to 200 attempts by the weights above, subject to:
    - every start-to-boss path has 3 or 4 combat nodes (Battle or Elite) among its 5 nodes in cols 2-6
    - the map has 1-2 Elites, all in cols 3-6
    - no Elite→Elite edge and no Peddler→Peddler edge
    - at least one path avoids every Elite
+   - no node is forced into an Elite: every node in cols 1-5 that leads to an Elite also has a non-Elite next node
    - col 7 holds at least 1 Camp and 1 Peddler
 
-   Fallback: cols 2, 4 and 6 are Battles (one col-4 node becomes an Elite) and cols 3 and 5 alternate Event, Peddler and Camp.
+   A layout whose types fail all 200 rolls is rerolled like a rejected layout (step 4). Only when no accepted layout can be typed does the fixed fallback apply: cols 2, 4 and 6 are Battles (one col-4 node becomes an Elite, placed where every col-3 node leading to it has another exit when possible) and cols 3 and 5 alternate Event, Peddler and Camp.
 6. **Battle node rolls.**
    - **Objective:** Raze 50, Holdfast 25, Beacons 25. If Beacons is cut (SHOULD), use Raze 65, Holdfast 35. Elites use the Elite layout.
    - **Biome:** see §K.
@@ -162,7 +163,7 @@ The map has 16-22 nodes in total.
 
 **Sellswords.** Units gained from events, Camp Drill (empty Retinue), Stragglers or the Peddler spawn in the next battle on top of the Retinue cap. After that battle they join the survivor pool for the normal Retinue pick.
 
-**Stragglers.** After a non-boss defeat that leaves the Retinue empty, 2 Rank I Ashpikes join the next battle as Sellswords. The Results screen says so.
+**Stragglers.** After a non-boss defeat, or a Retreat with no surviving soldiers, that leaves the Retinue empty, 2 Rank I Ashpikes join the next battle as Sellswords (not when the run ends). The Results screen says so.
 
 **Veterancy.**
 - Rank I at 3 kills, Rank II at 7, Rank III at 12. Max Rank III.
@@ -173,7 +174,7 @@ The map has 16-22 nodes in total.
 - **Losing a non-boss battle** (Hearth destroyed): −1 Resolve, no reward, Retinue lost (Stragglers, below, refill an empty one). The node is marked done and you continue from it.
 - **Same tick.** If the last Nest (or the Regent) and the Hearth fall in the same tick, the battle is a victory. A Last Stand is not spent once the Regent has fallen.
 - **Sound the Retreat** (pause menu, from 3:00, never in the boss battle): −1 Resolve. You keep the Crowns plundered so far, pick a Retinue from survivors, and the node is marked done.
-- **Last Stand** (boss battle only): when the Hearth would be destroyed and Resolve is at least 1, spend 1 Resolve. The Hearth returns at 40% HP and is invulnerable for 5 s. Enemies within 6 tiles take 150 damage and a 3-tile knockback. Rally the Hearth triggers for free, ignoring its cooldown.
+- **Last Stand** (boss battle only): when the Hearth would be destroyed and Resolve is at least 1, spend 1 Resolve. The Hearth returns at 40% HP and is invulnerable for 5 s. Enemies within 6 tiles take 150 damage and a 3-tile knockback. The Briar Regent (and the Antlered Lord) is thrown 6 tiles instead and rooted for 4 s. Rally the Hearth triggers for free, ignoring its cooldown.
 - **Run ends.** You win by slaying the Briar Regent. You lose when Resolve hits 0 outside the boss battle, or when the Hearth falls in the boss battle at 0 Resolve.
 
 **Briefing preview.** Opening a battle node's Briefing is only a preview: Back returns to the map with nothing spent. The route commits when the player presses Begin Battle.
@@ -183,14 +184,14 @@ The map has 16-22 nodes in total.
 - Starting a battle sets `battleInProgress`.
 - On Continue with `battleInProgress` set:
   - **Non-boss battle:** counts as a Retreat with 0 plunder (−1 Resolve, the Retinue is the node-entry snapshot, the node is marked done).
-  - **Boss battle:** restarts with the same seed at −1 Resolve, and the run is over at 0.
+  - **Boss battle:** restarts with the same seed at −1 Resolve, plus 1 for each Last Stand already spent in that battle, and the run is over at 0.
 - The Quit dialog states this cost.
 
 ## C. Battle types
 
 **Common start (all battles):**
 - Pre-built Hearth plus the **Vanguard** building, 7 Tillers, 1 Courser (scout), the Warden, the Retinue and any Sellswords.
-- Tillers stand below the Hearth. The Courser, the Warden, the Retinue and Sellswords stand on the far side, so a box over the Tillers selects only Tillers.
+- Tillers stand below the Hearth. The Courser, the Warden, the Retinue and Sellswords stand on the far side and never within 1.5 tiles of a Tiller, even when a 12-pop Retinue wraps around the Hearth, so a box over the Tillers selects only Tillers.
 - **250 Grain / 300 Timber / 75 Ember**, pop cap 20, explored radius 10 around the Hearth.
 - A 3 s "Kindle!" countdown runs before the clock starts.
 - **Defeat:** the Hearth is destroyed (except Last Stand in the boss battle). The Warden's death is never defeat.
@@ -208,7 +209,7 @@ The map has 16-22 nodes in total.
 | **Raze** | raze | 56×56. Hearth in a random corner, center 9-12 tiles from both edges. | Nests: 2 (d≤4) or 3 (d≥5). 1 Thornspire per Nest. 2 Bramble Pickets on the contested Seams. Caches per §J. | All Nests destroyed | Par 6:00 + 0:45 per Nest above 2. +30 Crowns under par. | 4:30-7:30 |
 | **Holdfast** | holdfast | 48×48. Hearth at the exact map center. | 2 Nests (3 at d≥5), 17-23 tiles from the Hearth and at least 12 apart. 1 Thornspire each. 1 unguarded contested Seam 12-16 tiles from the Hearth and at least 10 from every Nest. No Pickets, no raids, no Ascendant. | Survive 6 waves (all launched and every wave unit dead, garrisons don't count), **or** destroy all Nests | "Unbroken": +30 Crowns if no completed building is lost. "Uprooted": +30 Crowns. | 5:30-6:30 |
 | **Beacons** (SHOULD) | beacons | 56×56. Hearth at an edge midpoint, inset 9. | 3 Beacon Stones 15-24 tiles from the Hearth and at least 12 apart, each guarded by 2 + d value of Lurkers. 2 Nests (3 at d≥5) along the far edge. 2 contested Seams, no Pickets. | Kindling meter reaches **450**, **or** all Nests destroyed | Par 5:30. +30 Crowns. | 4:30-6:00 |
-| **Noble Hunt** (Elite) | elite | 56×56, Raze layout | 2 Nests plus the Antlered Lord (§I) and +1 negative modifier. 1 Thornspire per Nest, 2 Pickets. | All Nests destroyed **and** the Lord slain | Par 6:30. +40 Crowns Elite bonus, +30 under par. | 6:00-7:30 |
+| **Noble Hunt** (Elite) | elite | 56×56, Raze layout | 2 Nests plus the Antlered Lord (§I) and exactly one negative modifier (§K). 1 Thornspire per Nest, 2 Pickets. | All Nests destroyed **and** the Lord slain | Par 6:30. +40 Crowns Elite bonus, +30 under par. | 6:00-7:30 |
 | **Briar Throne** (Boss) | boss | 64×64 hand-authored template (§K). Hearth SW, Throne NE. | 3 Root Hearts, the Regent, 2 Pickets, no modifiers | Slay the Briar Regent | none | 8:00-9:30 |
 
 **Beacon rules** (SHOULD, with the Beacons objective).
@@ -342,7 +343,7 @@ Rules:
 - **Repair** is free: 8 HP/s per Tiller, max 4 repairers.
 - **Placement.** The footprint must be explored, entirely grass or stump, free of Blight and resources, and at least 3 tiles from any enemy structure. Buildings may touch each other. Forward building is otherwise allowed. Exception: with Kiln Masons, Brazier Towers may sit on Blight.
 - **Production queue** holds 5 slots. Cost is paid on queue and cancelling refunds 100%. Pop is checked when training starts.
-- **Rally.** RMB sets the rally point. Rallying on a resource sends new Tillers to gather it.
+- **Rally.** RMB sets the rally point. Rallying on a resource sends new Tillers to gather it. Rallying on a tree (or the canopy beside one) sends them to that tree; if it is felled or every nearby tree is at its 2-gatherer cap, they take a free tree within 6 tiles, then within 10, then the nearest live tree within 10 even at the cap. Only with no live tree within 10 tiles do they walk to the rally point.
 - **Pathing.** Every building, including Grainplots and foundations, is impassable to everyone. Enemy flow fields treat player buildings as cost 12 and attack them (§I).
 - **Armor** is 3 unless listed otherwise.
 - **Defensive fire.** Hearth and tower bolts are ranged projectiles with no class bonuses. They target enemy units only, never structures.
@@ -533,8 +534,10 @@ The Antlered Lord is class cavalry, so Ashpikes deal ×3 to it under the normal 
 **Spent.**
 - **Start.** When a Nest launches a wave it becomes Spent.
 - **Effects.** It takes ×1.5 damage and its garrison does not regenerate. Its banner greys and it pulses on the minimap.
-- **End.** Spent ends 45 s after that wave is broken (every member dead or dissolved), or 105 s after launch if the wave is still alive then. The 45 s covers walking 25-35 tiles out and clearing the garrison.
-- **Feedback.** When the wave breaks, a horn sting plays and a toast reads "Wave 3 broken. NE Nest Spent 0:45", with a screen-edge arrow toward the Spent Nest.
+- **End.** Spent ends 45 s after that wave is broken (every member dead or dissolved), or 105 s after launch if the wave is still alive then. The 45 s covers walking 25 tiles out and clearing the garrison.
+- **Distance extra.** Each Nest adds 1 s per tile its center lies beyond 25 tiles from the Hearth center, at most +30 s, to both windows (`SPENT.baseTiles` 25, `perTile` 1, `extraCap` 30). A 32-tile Nest stays Spent 52 s after the break (cap 112 s), a 44-tile Nest 64 s (cap 124 s).
+- **Feedback.** When the wave breaks, a horn sting plays and a toast reads "Wave 3 broken. NE Nest Spent 0:52" ("NE Root Heart Spent" in the boss battle), with a screen-edge arrow toward the Spent Nest. The Spent ribbon names the wave only while it is current ("NE Nest Spent 0:31" later).
+- **Names.** A Nest is named by its compass direction from the Hearth. When two Nests share a direction they are "near NW" and "far NW" by Hearth distance. Three in one direction (the boss's Root Hearts) keep the nearest as "NE" and name the others by 16-point bearing ("NNE", "ENE"). The Horn, the alerts and the Spent markers use the same name.
 
 **Movement (cohesion).** While advancing, a wave moves in three speed bands. Each band moves at the speed of its slowest member:
 - riders (Stagriders)
@@ -555,20 +558,22 @@ After reaching or destroying its target, a wave attack-moves to the Hearth.
 **Doctrines.**
 - Each battle rolls one primary doctrine from those available at its depth.
 - It shows as the Nest banner icon once a Nest is seen, and as a briefing hint. For a profile's first 3 runs the briefing also names the answer ("Hunt: bring Ashpikes, and guard your Tillers with towers.").
-- The answer always starts with the doctrine name. When it names a drafted unit the run has not unlocked (Oathshield, Destrier), the briefing shows a core-units answer instead ("Spines: bring Coursers to run down the Spinecasters. Against Thornhusks, research Ember Edge at the Forgehall.").
+- The answer always starts with the doctrine name. When it names a drafted unit the run has not unlocked (Oathshield, Destrier), the briefing shows a core-units answer instead ("Spines: Coursers run down the Spinecasters, Ashpikes in front stop the Briarguards and burn the Nests. Against Thornhusks, research Ember Edge at the Forgehall.").
+- Doctrines that mix Spinecasters and Briarguards (Spines, Siegebreak) name an answer for both: Briarguards are ×3 against cavalry, so Coursers alone feed them.
 - Each wave has a 25% chance to roll a random available secondary doctrine instead.
 - Types below their unlock depth drop out of the weights.
 
 | Doctrine | id | From d | Weights | Wave target | Briefing hint | Readable answer |
 |---|---|---|---|---|---|---|
 | Swarm | swarm | 1 | Thornling 60, Briarguard 20, Spinecaster 20, Stagrider 12, Rootbreaker 10, Thornhusk 10 | Hearth | "The thorns are thick and restless." | Spear line + Bowmen, towers |
-| Spines | spines | 1 | Spinecaster 50, Briarguard 25, Thornling 25, Gloamwitch 10, Thornhusk 10 | Nearest player military unit at launch, then Hearth | "Quills litter the road." | Coursers, Oathshields; Destriers or Ember Edge for Thornhusks (core: Coursers, Ember Edge) |
+| Spines | spines | 1 | Spinecaster 50, Briarguard 25, Thornling 25, Gloamwitch 10, Thornhusk 10 | Nearest player military unit at launch, then Hearth | "Quills litter the road." | Coursers for the Spinecasters, Oathshields and Ashpikes in front for the Briarguards; Destriers or Ember Edge for Thornhusks (core: Coursers, Ashpikes, Ember Edge) |
 | Hunt | hunt | 2 | Stagrider 45, Thornling 35, Spinecaster 20, Briarguard 15 | Storehouse with the most Tillers within 8 tiles, else the farthest Tiller from the Hearth, else Hearth | "Hoofprints in the mud." | Ashpikes, towers |
-| Siegebreak | siegebreak | 3 | Briarguard 40, Spinecaster 40, Rootbreaker 20, Thornhusk 15, Stagrider 12 | Nearest Brazier Tower, else Hearth | "Uprooted oaks drag toward your camp." | Coursers, melee on the Rootbreakers |
+| Siegebreak | siegebreak | 3 | Briarguard 40, Spinecaster 40, Rootbreaker 20, Thornhusk 15, Stagrider 12 | Nearest Brazier Tower, else Hearth | "Uprooted oaks drag toward your camp." | Coursers for the Spinecasters, Ashpikes for the Briarguards, melee on the Rootbreakers |
 | Court | court | 4 | Briarguard 25, Spinecaster 25, Stagrider 20, Gloamwitch 15, Thornhusk 15, Rootbreaker 10 | Hearth | "A crown glints in the briars." | Mixed army, focus the Gloamwitches; Destriers or Ember Edge for Thornhusks (core: Ember Edge) |
 
 **Light adaptation** (SHOULD).
-- At muster, if the player has 6 or more military units and at least 40% of them share a class, the counter type gets +50 weight.
+- From wave 3 on, at muster, if the player has 10 or more military units and at least 55% of them share a class, the counter type gets +50 weight. The bonus is halved to +25 when the wave's doctrine already weights that type at 40 or more (Spinecasters in Spines and Siegebreak), so one-type waves stay rare.
+- Mixed armies never trigger it: 4 Ashpikes / 3 Bowmen / 2 Coursers, 5/5 or 8/6/6 do not; 6 Ashpikes / 2 Bowmen / 2 Coursers does from wave 3.
 - The Horn announces it, for example "The thorns have learned your bows."
 - Counter types:
   - ranged-heavy → Stagrider (Thornling at d1)
@@ -584,6 +589,7 @@ After reaching or destroying its target, a wave attack-moves to the Hearth.
   4. A player building blocking its path or within 2 tiles.
   - Rootbreakers only target buildings: the nearest within 8 tiles, else their path target.
 - **Retargeting** happens every 0.5 s. A wave unit chases at most 6 tiles from where the engagement started, then resumes its advance and ignores that target for 5 s.
+- **Commit rule (waves only).** A wave unit whose target is a player building other than its wave goal (and not a building blocking its path) counts the time it spends on it, but only while no player military unit or Warden is within 8 tiles of it and it stands outside the Hearth's range. After 20 s (`ENEMY_AI.commitAfter`) it commits: it skips non-goal buildings at priorities 2 and 4 (it still attacks a blocker, units at priorities 1-3 and the goal building) and marches on the wave goal, normally the Hearth. A player military unit within 8 tiles resets the commitment, so the wave fights an army that returns; the Warden alone only pauses the count. This ends the stalemate where ranged units plink a forward Tower or Muster Hall at ×0.2 for minutes, just outside the Hearth's range, while Dissolve never fires because they keep dealing damage. Dissolve is unchanged.
 - **Player buildings** cost 12 in enemy flow fields. An enemy whose next tile is a building attacks it, so buildings are attacked, never walked through.
 
 **Garrisons.**
@@ -611,7 +617,8 @@ After reaching or destroying its target, a wave attack-moves to the Hearth.
 ### Boss: the Briar Regent (`briar_regent`, class boss, radius 1.1)
 
 **Phase 1, Enthroned.**
-- The Regent stands on the Throne and is **untargetable**, shown with a "Warded" shield shimmer. The tracker reads "Burn the Root Hearts 0/3 · Regent Warded".
+- The Regent stands on the Throne and is **untargetable**, shown with a "Warded" shield shimmer. The tracker counts down to Wrath: "Burn the Root Hearts 0/3 · Wrath 6:20". The boss bar still says Warded.
+- **Wrath warning.** 30 s before Wrath, with a Root Heart still standing, a high-priority alert reads "The Regent stirs. Wrath in 0:30." and a horn sounds.
 - **Thorn Lance** every 8 s: hits a player unit within 10 tiles of the Throne with a 1.2 s line telegraph, then 60 damage. It punishes early dives.
 - 3 Root Hearts stand 16-22 tiles from the Throne (§K).
 - **Waves:**
@@ -621,7 +628,7 @@ After reaching or destroying its target, a wave attack-moves to the Hearth.
 - **Heart kills.** Each Heart destroyed removes 1500 HP from the Regent's phase-2 pool.
 
 **Phase 2, Uprooted.**
-- **Trigger:** all Hearts dead, or 8:00. At 8:00 this is **Wrath**: surviving Hearts keep spawning waves and the Regent deals +20% damage.
+- **Trigger:** all Hearts dead, or 8:00. At 8:00 this is **Wrath**: surviving Hearts keep spawning waves and the Regent deals +20% damage. The alert reads "Wrath! The Regent tears free of its Throne: +20% damage, and the surviving Root Hearts keep sending waves." and the boss bar's phase label reads Wrath (Uprooted after a clean Heart kill).
 - **Stats:** HP `3000 + 1500 × heartsAlive`. Armor 5. ATK 40 with splash radius 1.5 (50% at the edge). CD 2.2. Range 1.2. Structure multiplier 2.0, ×2 vs siege. Speed 1.6.
 - **Behavior:**
   - Marches on the Hearth by flow field and hits anything within 2 tiles on the way.
@@ -734,7 +741,7 @@ There are no neutral units, no wildlife and no neutral aggression in the slice.
 
 **Encounter modifiers.**
 - Col 1: none. Col 2: 30% chance of one. Cols 3-4: 60% chance of one. Cols 5-6: one, plus a 30% chance of a second.
-- Elite: +1 extra modifier from the negative list.
+- Elite: carries exactly one negative modifier. If its rolls hold none, one is added from the negative list without Blood Moon. Once it holds a negative, a second open roll skips negatives. Blood Moon can still come from the open roll as its only hardship.
 - No duplicates. The boss has none.
 
 | id | Modifier | Kind | Exact effect | Payoff |
@@ -845,10 +852,10 @@ There are no neutral units, no wildlife and no neutral aggression in the slice.
 
 **Boon offer rules.**
 - Rarity per card: normal C 62 / R 30 / M 8. Elite 0 / 75 / 25.
-- Within a rarity, weight is ×2 if the Boon shares a tag with an owned Boon, the House or a drafted unit.
+- Within a rarity, weight is ×2 if the Boon shares a tag with an owned Boon, the House or a drafted unit. A House tag counts only while 3 or more eligible Boons carry it.
 - Only Base and unlocked Codex Boons are eligible.
 - No duplicates within an offer or a run. An exhausted rarity falls to the next lower one, then the next higher.
-- **First reward Boon offer of a run:** if it rolls no Rule Boon, its last card is replaced by a random eligible Rule Boon of any rarity.
+- **First reward Boon offer of a run:** its last card is always a random eligible Common or Rare Rule Boon (a Mythic Rule only if none remain). The other cards roll as usual.
 
 **Defeat:** no Crowns or reward. **Retreat:** keep plunder Crowns only.
 
@@ -906,8 +913,8 @@ The total is 950 Renown, about 9-10 runs. The cheap Codex entries give at least 
 | Shift+LMB / Shift+drag | Add to or remove from the selection |
 | Double-click | Select all own units (or buildings) of that type on screen |
 | RMB | Smart command, read from `pointerdown` button 2. Ground → move. Enemy → attack (Gatebreaker: move). Resource → gather (Tillers). Own unfinished or damaged building → build or repair. Drop-off → deposit. With a building selected → rally point. |
-| Shift+RMB | Queue a move, attack-move or build order (max 8 queued). A build or repair queues only behind a current build order or a non-empty queue: a gathering, moving or idle Tiller starts it at once, keeps its gather job and returns to it afterwards. |
-| A, then LMB | Attack-move |
+| Shift+RMB | Queue a move, attack-move or build order (max 8 queued). A build or repair (a Shift+RMB on an own foundation or damaged building too) queues only behind a current build order or a non-empty queue: a gathering, moving or idle Tiller starts it at once, keeps its gather job and returns to it afterwards. A loaded gathering Tiller that Shift+RMBs a drop-off deposits at once. |
+| A, then LMB | Attack-move. On a visible enemy unit or a seen enemy building it is a direct attack on that target (minimap A-clicks always attack-move). |
 | S / G | Stop / Hold ground |
 | 1-9 | Recall group. Double-tap (≤ 300 ms) centers the camera. |
 | Ctrl+1-9 or Alt+1-9 | Assign group where the browser allows it |
@@ -928,7 +935,9 @@ The total is 950 Renown, about 9-10 runs. The cheap Codex entries give at least 
 | Wheel | Zoom 0.75-1.5× |
 | Minimap LMB / drag / RMB | Jump camera / scrub / smart move order |
 
-Keys bind on `e.code`. `preventDefault` is called on `contextmenu`, Space, Tab, Backquote and F2.
+Keys bind on `e.code`. `preventDefault` is called on `contextmenu`, Space, Tab, Backquote and F2. Hotkey labels follow the keyboard layout (QWERTZ, AZERTY): from the Keyboard API where the browser has it, else learned from the first keys pressed.
+
+**Phones and tablets.** The game is laid out for a mouse and keyboard at 1280×720 and up. A coarse-pointer device, or a small screen, gets a one-time notice after the Title ("Best on a computer", with a Copy link and "Turn it sideways" in portrait; a mouse device in a small window gets "Best in a larger window"), and the menus scale down on small touch screens. The notice's touch line: "On touch: tap to select, tap the ground to move or attack, drag to pan." Battle input matches it, and two fingers pinch to zoom. The battle HUD scales down to 0.6 on phones.
 
 **HUD** (designed for 1280×720 and up, scales).
 - **Top bar (32 px):** Grain, Timber, Ember with income/min on hover, Pop x/cap, battle clock, Resolve pips.
@@ -937,19 +946,20 @@ Keys bind on `e.code`. `preventDefault` is called on `contextmenu`, Space, Tab, 
   - "Nests 1/2 · Par 4:12" (the par timer ticks and greys out when missed)
   - "Kindling 140/450"
   - "Waves 4/6"
-  - "Burn the Root Hearts 1/3 · Regent Warded"
+  - "Burn the Root Hearts 1/3 · Wrath 7:12" (phase 1 counts down to Wrath)
 
   It also shows battle Crowns and the menu button.
-- **Boss bar:** below the Horn.
+- **Boss bar:** below the Horn. Its phase label reads Warded, Wrath, Enraged or Uprooted, and a "Wrath" callout marks the Regent tearing free.
 - **Bottom panel (170 px):**
   - **Minimap (160×160, left):** fog, Blight, pings, Spent Nest pulses, revealed final-wave units, camera frame.
   - **Group slots:** a row of 9 above the selection panel, each showing its count and lead icon.
   - **Selection panel (center):**
-    - Single unit: portrait, stats, rank chevrons, Strong/Weak icons.
+    - Single unit: portrait, stats, rank chevrons, Strong/Weak icons. A building icon joins Weak vs when the unit's structure multiplier is under ×0.5 (Bowmen ×0.2, Coursers ×0.4) and Strong vs from ×1 (Gatebreakers ×4).
     - Group: up to 30 type-grouped icons with HP, click to sub-select.
     - Building: HP and the 5-slot queue.
   - **Command card (right):** 5×2 grid. Each button shows its hotkey letter and cost, turns red when unaffordable, and has a tooltip with the reason when disabled.
   - **Idle-Tiller button and Warden button** above the minimap. The Warden button shows the respawn timer while the Warden is fallen.
+- **Camera:** pans and zooms may bring the map's top rows down to half a tile below the objective tracker column, so trees and building spots there are never stuck under the HUD. Jumps (H, Space, group recall, the opening view) keep the normal clamp.
 - **Alerts:** a left-edge toast feed, red screen-edge chevrons toward off-screen threats, minimap pings. Alert types:
   - wave mustering, wave broken (with Spent timer), Warden fallen
   - under attack, Tillers under attack, idle Tillers
@@ -978,14 +988,14 @@ Boss win / Run Over ─▶ Run Summary (stats, Renown tally, next-unlock bar) �
 | # | Trigger | Hint |
 |---|---|---|
 | 1 | 0:00 | "Double-click a Tiller to select every Tiller on screen (or drag a box over them), then right-click a Thicket to gather Grain." |
-| 2 | First gather order | "Press H to select the Hearth and Q to train more Tillers." |
+| 2 | First gather order | "Press H to select the Hearth and Q to train more Tillers. Scout with your Courser, but keep clear of the purple spires: Bramble Pickets guard the Seams." |
 | 3 | Clock ≥ 0:30, Timber ≥ 150 and only one military building | "With Tillers selected, press B for a Muster Hall or R for a Bowyard." |
 | 4 | Pop within 2 of the cap | "Press C with Tillers selected to build a Cottage (+6 pop)." |
-| 5 | Wave 1 mustering | "A wave musters. Get a unit close to its Nest to see what's coming, but Bramble Pickets guard the contested Seams. ` selects your Warden." |
+| 5 | Wave 1 mustering | "A wave musters. Get a unit close to its Nest to see what's coming. The Warden button beside the minimap selects your Warden." |
 | 6 | Wave 1 launched | "Select the Hearth and press V to rally nearby Tillers. It has a long cooldown." |
 | 7 | Near Thickets below 30% | "Thickets run out. Grainplots (F) feed 2 Tillers forever." |
 | 8 | First military unit trained | "Ctrl+1 or Alt+1 makes a group, or right-click a group slot. Press 1 to recall it." |
-| 9 | Wave 1 broken | "That Nest is Spent and takes extra damage for 45 s after its wave breaks. Select your army, press A and click the Nest." (the number reads `SPENT.afterBroken`) |
+| 9 | Wave 1 broken | "That Nest is Spent and takes extra damage for at least 45 s after its wave breaks. Select your army and right-click the Nest. Ashpikes and the Warden burn it; arrows and horses barely scratch it." (the number reads `SPENT.afterBroken`; A+click on the Nest attacks it too) |
 | 10 | First counter popup | "Orange ×3 means a counter bonus. Grey means resisted. Hold Tab for the Counter Wheel." |
 
 ## P. Juice and SFX
@@ -1140,8 +1150,8 @@ Sources:
 | Boss phase 2 | 24 units + Warden kill a 3000 HP Regent in about 70 s, and 4500 HP in about 110 s (sim, no splash). Gatebreakers deal 10 DPS each to it. |
 | Blight | The cap is reached at 2:20 (d1), 3:20 (d4) and 4:00 (d6). Contested Seams within the cap are swallowed between 2:20 and 3:40. |
 | Battle durations (median) | d1 Raze 4:30-6:00. d4 Raze 5:30-6:30. d5-6 Raze 6:00-7:30. Holdfast 5:30-6:30. Beacons 4:30-6:00. Elite 6:00-7:30. Boss 8:00-9:30. |
-| No input (fix pass) | With no orders at all, Raze, Holdfast and Beacons are lost at d1-3 (0 wins over seeds 1-8). |
-| Engine bot (fix pass, seeds 1-8) | Raze d1 6/8 (median 6:19), d2 5/8. Holdfast d1 7/8 (5:55), d2 7/8, d3 5/8. Beacons d1-2 8/8 (median 4:57-4:58). The bot is a scripted player in `tests/integration/bot.ts`; the matrix is in `.agent-status/sim.md`. |
+| No input (final pass) | With no orders at all, Raze, Holdfast and Beacons are lost at d1-3 (0 wins over seeds 1-8). |
+| Engine bot (final pass, seeds 1-8) | Raze d1 6/8 (median 6:19), d2 3/8. Holdfast d1 7/8 (5:48), d3 5/8. Beacons d1 8/8 (median 4:57). Over seeds 1-24: Raze d1 11, d2 8, Holdfast d1 23, d3 10, Beacons d1 24. The bot is a scripted player in `tests/integration/bot.ts` and a weak judge of d3+; the matrix is in `.agent-status/final-sim.md`. |
 | Run length | 35-44 min with 5-6 battles |
 | Crowns | d1 about 85, d4 about 120, d6 about 145. A run earns 550-650. |
 | Renown | Early loss about 45, mid loss about 100, win about 195. At least 1 unlock per run for the first 5 runs. |
@@ -1217,7 +1227,7 @@ Sources:
 - **Old Watchtowers** is a new positive modifier replacing Lost Levy, so 10 modifiers remain without a neutral team. It only pre-places 2 player towers.
 
 **Fix pass (playtest findings)**
-- **Holdfast** waves rose to Hbase [8, 13, 18, 25, 34, 52] with their own slope 0.06 (d1 +30%, d6 within +3% of before), because the Hearth and Warden alone held all six waves at d1-2.
+- **Holdfast** waves rose to Hbase [8, 13, 18, 25, 34, 52] with their own slope 0.06 (d1 +30%; d6 about +5.5% in total, +0% to +11% per wave), because the Hearth and Warden alone held all six waves at d1-2.
 - **Spent** lasts 45 s after the break (cap 105 s from launch), because walking out and clearing the garrison used up the old 30 s window.
 - **Beacons** need 450 Kindling (was 300).
 - **Root Hearts** have 1200 HP and a 12-value garrison (were 1400 and 16): a run-like army burned only 1 of 3 Hearts before Wrath.
@@ -1227,6 +1237,21 @@ Sources:
 - **Kill credit** counts arrows and burns from attackers that died before they landed (stats, Spoils of the Wake); rank-ups still need a live killer.
 - **Shift-build** follows AoE2: a gathering Tiller starts the first queued build at once (§O).
 - **Builders** whose gather source ran out during the build pick the same resource within 10 tiles before going idle (§D).
+
+**Final pass (second playtest)**
+- **Shift+RMB** on an own foundation or damaged building follows the build rule: a gathering Tiller starts it at once and returns to its gather job; a loaded gathering Tiller that Shift+RMBs a drop-off deposits at once (§O). Before, the build queued behind the endless gather and never ran.
+- **Wave commit rule** (§I Unit AI): wave units stop plinking a non-goal building with no army near them and march on the Hearth after 20 s. It ended a newcomer stalemate where 20 Spinecasters stood just outside the Hearth's range for minutes.
+- **Spent distance extra** (§I): far Nests add up to 30 s to both Spent windows, and two Nests in one direction are "near" / "far" in the Horn, alerts and markers. Boss alerts name the Root Heart.
+- **Light adaptation** (§I) needs 10+ military with a 55% share and starts at wave 3; the bonus halves for a counter the doctrine already weights at 40+. Before, almost every army triggered it on wave 1 or 2, and a d3 Siegebreak wave 4 was 12 Spinecasters of 16.
+- **Wrath** (§I boss): phase 1 counts down in the tracker, a warning comes 30 s ahead, the Wrath alert names its effects, and the boss bar's phase label reads Wrath.
+- **Last Stand** (§B): the Regent and the Antlered Lord are thrown 6 tiles and rooted for 4 s. Measured against the Regent alone, its next Hearth hit now lands 7.7-9.2 s after the Last Stand instead of 5.7-7.2 s. The Hearth's 5 s invulnerability already covered most of the old 2 s walk back, so the gain is about 1-2.5 s per Last Stand; the army gets a rooted Regent to hit.
+- **Hearth rally on a felled or crowded tree** finds a tree within 10 tiles, even one at the gatherer cap, before falling back to a plain move (§E).
+- **Large starts** keep every non-Tiller 1.5 tiles from the Tillers, so a box over the Tillers still selects only Tillers with a 12-pop Retinue and Sellswords (§C).
+- **Counsel and coach texts**: Spines and Siegebreak name Ashpikes for the Briarguards; the first-gather hint warns the scout about Pickets; the scout hint and the empty selection panel point to the Warden button (no bare backquote); the Spent hint says right-click; Siegecraft says it needs a Forgehall (§I, §O).
+- **Battle input**: A, then LMB on an enemy is a direct attack. Touch input taps to select or command, drags to pan and pinches to zoom. The boss bar shows Wrath, a unit's panel shows a building icon for high or low damage against buildings, pans can bring the map's top rows out from under the tracker, and hotkey labels follow QWERTZ and AZERTY in every browser (§O).
+- **Run flow**: a one-time phone and small-window notice (§O). An Elite carries exactly one negative modifier, never a forced Blood Moon (§K). Stragglers also follow a Retreat with no survivors (§B). Results label the boss battle's row "Root Hearts burned".
+- **Route choice** (§B steps 4-5), the first-offer Rule card and the House-tag threshold (§M) and the boss quit cost (§B Autosave) are now written down; they shipped in the fix pass.
+- **Holdfast** at d6 is about +5.5% over the old curve in total (+0% to +11% per wave), not within +3% as the fix pass said.
 
 **Evidence scripts**
 - `/private/tmp/claude-502/-Users-openclaw-projects-roguelike-rts/33e6e381-d844-4c62-b192-2f2929a293b9/scratchpad/rev/econ3.py`

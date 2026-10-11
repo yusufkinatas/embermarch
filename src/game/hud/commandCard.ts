@@ -30,7 +30,7 @@ type CardItem = CommandOption | LocalOrder;
 const LOCAL_ORDERS: Omit<LocalOrder, 'slot'>[] = [
   { kind: 'order', id: 'stop', label: 'Stop', hotkey: 'S', tooltip: 'Drop the current order and stand ready.' },
   { kind: 'order', id: 'hold', label: 'Hold Ground', hotkey: 'G', tooltip: 'Never move. Attack enemies that come within range.' },
-  { kind: 'order', id: 'attackMove', label: 'Attack-Move', hotkey: 'A', tooltip: 'Then click: march there and fight everything on the way.' },
+  { kind: 'order', id: 'attackMove', label: 'Attack-Move', hotkey: 'A', tooltip: 'Then click the ground to march there and fight everything on the way, or click an enemy to attack it.' },
 ];
 
 /** Free bottom-row slots, right to left, get Stop, Hold, Attack-Move (Tillers only have room for Stop). */
@@ -138,6 +138,7 @@ export class CommandCard {
           s.costKey = '';
         }
         toggleClass(s.btn, 'cost3', false);
+        toggleClass(s.btn, 'cost2', false);
         setStyle(s.cd, '--p', '0');
         setText(s.cdText, '');
         setText(s.badge, '');
@@ -159,6 +160,8 @@ export class CommandCard {
         clearChildren(s.cost);
         // Three costs (Outrider: Grain, Timber, Ember) take two lines so nothing is clipped.
         toggleClass(s.btn, 'cost3', entries.length >= 3);
+        // Two costs: on phones (HUD scale 0.6) they wrap onto two lines too.
+        toggleClass(s.btn, 'cost2', entries.length === 2);
         for (const c of entries) {
           const item = h('span', `bt-cost-item res-${c.res}${res[c.res] < c.amount ? ' short' : ''}`, s.cost);
           const ic = h('i', 'bt-res-ic', item);
@@ -187,6 +190,7 @@ export class CommandCard {
       s.costKey = '';
     }
     toggleClass(s.btn, 'cost3', false);
+    toggleClass(s.btn, 'cost2', false);
     toggleClass(s.btn, 'disabled', false);
     toggleClass(s.btn, 'unaffordable', false);
     setStyle(s.cd, '--p', '0');

@@ -158,6 +158,9 @@ export class BattleController implements BattleControllerLike {
         applySettings: (s) => this.applySettings(s),
       },
       {
+        topBand: (px) => {
+          this.camera.topBand = px;
+        },
         openMenu: () => this.openMenu(),
         dismissHint: () => this.dismissHint(),
         hintSeen: (id) => this.safe('onHintSeen', () => this.callbacks.onHintSeen?.(id)),
@@ -171,7 +174,9 @@ export class BattleController implements BattleControllerLike {
       edgePan: () => this.settings.edgePan,
       panSpeed: () => this.settings.panSpeed,
       modalOpen: () => this.menuIsOpen || this.endResult !== null,
+      // Called on pointerdown, keydown and pointerup (a touch pointerdown is not a user activation).
       gesture: () => this.safe('audio', () => this.audio.unlock()),
+      layoutChanged: () => this.hud.invalidate(),
     });
     this.loop = new FixedStepLoop(() => this.tick());
 

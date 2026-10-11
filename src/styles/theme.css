@@ -46,6 +46,8 @@
   --panel-grad: linear-gradient(180deg, rgba(42, 35, 28, 0.96) 0%, rgba(26, 22, 18, 0.97) 40%, rgba(18, 15, 12, 0.98) 100%);
   --glow-ember: 0 0 18px rgba(255, 106, 43, 0.45), 0 0 4px rgba(255, 179, 71, 0.6);
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Smallest label size on the rem-scaled screens (dropped on small touch screens, see below). */
+  --label-min: 11px;
 }
 
 *,
@@ -74,6 +76,17 @@ body {
  */
 html.ui-scaled {
   font-size: clamp(12px, min(1.25vw, 2.2223vh), 26px);
+}
+/*
+ * Small touch screens (landscape phones): the 12px floor makes the canvas at least 960x540 and pushes
+ * Begin buttons off screen, so the floor drops to 7px and the canvas shrinks to fit. Desktop windows keep 12px.
+ */
+@media (pointer: coarse) and (max-width: 959px), (pointer: coarse) and (max-height: 539px) {
+  html.ui-scaled {
+    font-size: clamp(7px, min(1.25vw, 2.2223vh), 26px);
+    /* Labels shrink with the canvas too; an 11px label overflows a header laid out for 0.56rem. */
+    --label-min: 0px;
+  }
 }
 
 #app {

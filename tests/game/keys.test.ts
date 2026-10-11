@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { hotkeyLabel, letterFor, loadKeyboardLayout, resolveKey, setKeyboardLayout, shouldPreventDefault, type KeyInput } from '../../src/game/keys';
+import { hotkeyLabel, learnKeyLayout, letterFor, loadKeyboardLayout, resolveKey, setKeyboardLayout, shouldPreventDefault, type KeyInput } from '../../src/game/keys';
 
 function k(code: string, mods: Partial<KeyInput> = {}): KeyInput {
   return { code, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...mods };
@@ -91,5 +91,44 @@ describe('hotkey labels follow the keyboard layout (B14)', () => {
     expect(hotkeyLabel('A')).toBe('Q');
     expect(hotkeyLabel('Q')).toBe('A');
     expect(await loadKeyboardLayout({ keyboard: { getLayoutMap: () => Promise.reject(new Error('denied')) } })).toBe(false);
+  });
+});
+
+describe('hotkey labels learned from keydown without navigator.keyboard (final fix pass B10)', () => {
+  afterEach(() => setKeyboardLayout(null));
+
+  it('QWERTZ: a KeyY keydown typing z swaps the Y/Z labels and maps the speed and Warden keys', () => {
+    expect(letterFor('KeyZ')).toBe('Z');
+    expect(learnKeyLayout({ code: 'KeyY', key: 'z' })).toBe(true);
+    expect(letterFor('KeyZ')).toBe('Y');
+    expect(letterFor('KeyY')).toBe('Z');
+    expect(hotkeyLabel('Z')).toBe('Y');
+    expect(hotkeyLabel('− / =')).toBe('ß / ´');
+    expect(hotkeyLabel('`')).toBe('^');
+    expect(hotkeyLabel('Q')).toBe('Q');
+    // Bindings stay physical.
+    expect(resolveKey(k('KeyZ'))).toEqual({ type: 'card', letter: 'Z', shift: false });
+  });
+
+  it('AZERTY from KeyQ typing a; a Shift+letter still counts, shifted symbols and modifiers do not', () => {
+    expect(learnKeyLayout({ code: 'Digit1', key: '!', shiftKey: true })).toBe(false);
+    expect(learnKeyLayout({ code: 'KeyQ', key: 'a', altKey: true })).toBe(false);
+    expect(letterFor('KeyA')).toBe('A');
+    expect(learnKeyLayout({ code: 'KeyQ', key: 'A', shiftKey: true })).toBe(true);
+    expect(hotkeyLabel('A')).toBe('Q');
+    expect(hotkeyLabel('Q')).toBe('A');
+    expect(hotkeyLabel('W')).toBe('Z');
+    expect(hotkeyLabel('M')).toBe(',');
+    expect(hotkeyLabel('`')).toBe('²');
+  });
+
+  it('QWERTY keydowns change nothing; dead keys are ignored; the Keyboard API map wins', () => {
+    expect(learnKeyLayout({ code: 'KeyZ', key: 'z' })).toBe(false);
+    expect(learnKeyLayout({ code: 'Equal', key: 'Dead' })).toBe(false);
+    expect(hotkeyLabel('− / =')).toBe('− / =');
+    expect(letterFor('KeyZ')).toBe('Z');
+    setKeyboardLayout(new Map([['KeyZ', 'z']]));
+    expect(learnKeyLayout({ code: 'KeyY', key: 'z' })).toBe(false);
+    expect(letterFor('KeyY')).toBe('Y');
   });
 });

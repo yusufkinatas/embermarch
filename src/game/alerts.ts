@@ -3,7 +3,8 @@
  * Times are real (wall-clock) seconds so toasts fade at the same pace at any game speed.
  */
 import { UNITS } from '../data/units';
-import type { AlertKind, Building, UnitId, World } from '../sim/types';
+import { ucore } from '../sim/core';
+import type { AlertKind, Building, Order, UnitId, World } from '../sim/types';
 import { PLAYER } from '../sim/types';
 import { plural } from './format';
 
@@ -207,10 +208,30 @@ export const UNATTENDED_AFTER = 15;
 export const UNATTENDED_REPEAT = 90;
 export const UNATTENDED_TEXT = 'A foundation stands unattended';
 
+/** Orders that never finish on their own: anything queued behind them is never reached. */
+function endless(o: Order): boolean {
+  return o.type === 'gather' || o.type === 'hold';
+}
+
+/**
+ * Add the foundations a Tiller's job will reach: the current build order, and queued builds up to
+ * the first endless order (a build queued behind a gather is stuck, so it does not count).
+ */
+function addBuildTargets(order: Order, queue: readonly Order[] | null, out: Set<number>): void {
+  if (order.type === 'build') out.add(order.buildingId);
+  if (!queue || endless(order)) return;
+  for (const q of queue) {
+    if (q.type === 'build') out.add(q.buildingId);
+    else if (endless(q)) return;
+  }
+}
+
 /**
  * Tracks own unfinished buildings that no Tiller is working on: no Tiller's current order and no
- * queued order is a build of it. After UNATTENDED_AFTER battle seconds `update` returns it once
- * (then at most every UNATTENDED_REPEAT seconds while it stays unattended).
+ * queued order it will reach is a build of it. Rally the Hearth and Tiller flee park the job in
+ * sim-core's saved order / queue (resumed afterwards), so those count as attended too. After
+ * UNATTENDED_AFTER battle seconds `update` returns it once (then at most every UNATTENDED_REPEAT
+ * seconds while it stays unattended).
  */
 export class UnattendedFoundations {
   private readonly since = new Map<number, number>();
@@ -221,8 +242,15 @@ export class UnattendedFoundations {
     const attended = new Set<number>();
     for (const u of world.units) {
       if (!u.alive || u.owner !== PLAYER || u.type !== 'tiller') continue;
-      if (u.order.type === 'build') attended.add(u.order.buildingId);
-      for (const q of u.queue) if (q.type === 'build') attended.add(q.buildingId);
+      addBuildTargets(u.order, u.queue, attended);
+      try {
+        const c = ucore(world, u);
+        // With no saved order, sim-core resumes the gather job (or idles) and then the saved queue.
+        const resumed: Order | null = c.savedOrder ?? (c.savedQueue ? (u.job ? { type: 'gather', target: u.job } : { type: 'idle' }) : null);
+        if (resumed) addBuildTargets(resumed, c.savedQueue, attended);
+      } catch {
+        /* sim-core state unavailable: current orders only */
+      }
     }
     const due: Building[] = [];
     const live = new Set<number>();

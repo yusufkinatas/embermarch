@@ -21,7 +21,7 @@ import { clearChildren, h, setBar, setBgImage, setHidden, setHtml, setText, togg
 import { formatCountdown, plural } from '../format';
 import { CLASS_GLYPH, GLYPHS, iconSrc } from '../glyphs';
 import { classifySelection } from '../selection';
-import { carryInfo, unitStatLines, type StatKey, type StatLine } from '../statSources';
+import { carryInfo, structureNote, unitStatLines, type StatKey, type StatLine, type StructureNote } from '../statSources';
 import type { HudContext } from './context';
 
 const MAX_CELLS = 30;
@@ -199,7 +199,7 @@ export class SelectionPanel {
     h('div', 'bt-sel-empty-crest', box).innerHTML = GLYPHS.ember;
     const t = h('div', 'bt-sel-empty-text', box);
     h('div', 'bt-sel-empty-title', t, 'No selection');
-    h('div', 'bt-sel-empty-hint', t, 'Click or drag a box to select. H selects the Hearth, ` the Warden, . an idle Tiller.');
+    h('div', 'bt-sel-empty-hint', t, 'Click or drag a box to select. H selects the Hearth, . an idle Tiller. The Warden button beside the minimap selects your Warden.');
   }
 
   // ---------------------------------------------------------------------------
@@ -312,8 +312,13 @@ export class SelectionPanel {
     toggleClass(v.hp, 'up', lines.hp.tone === 'up');
     toggleClass(v.hp, 'down', lines.hp.tone === 'down');
     setText(v.kills, u.kills > 0 || u.owner === PLAYER ? `Kills ${u.kills}` : '');
-    setHtml(v.strong, def.strongVs.length ? classIcons(def.strongVs) : '<em>—</em>');
-    setHtml(v.weak, def.weakVs.length ? classIcons(def.weakVs) : '<em>—</em>');
+    // Building damage (Bowmen ×0.2 vs a Nest, Gatebreakers ×4) joins the class icons.
+    const struct = structureNote(world, u.owner, u.type, u.rank);
+    const structIcon = (n: StructureNote): string => `<span class="bt-cls bt-struct" title="${n.text}">${GLYPHS.fort}</span>`;
+    const strongHtml = classIcons(def.strongVs) + (struct?.kind === 'strong' ? structIcon(struct) : '');
+    const weakHtml = classIcons(def.weakVs) + (struct?.kind === 'weak' ? structIcon(struct) : '');
+    setHtml(v.strong, strongHtml || '<em>—</em>');
+    setHtml(v.weak, weakHtml || '<em>—</em>');
 
     const fx: string[] = [];
     for (const b of u.buffs) if (b.until > world.tick) fx.push(BUFF_NAMES[b.id] ?? b.id);

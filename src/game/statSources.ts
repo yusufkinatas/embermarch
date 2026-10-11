@@ -3,7 +3,7 @@
  * (sim-core unitStats) with the base UNITS row, and names the sources that change each stat
  * (Boons, House passive, research, battle modifiers, rank). Pure: no DOM.
  */
-import { VETERANCY } from '../data/balance';
+import { CLASS_STRUCT_MOD, VETERANCY } from '../data/balance';
 import { BOONS } from '../data/boons';
 import { HOUSES } from '../data/houses';
 import { MODIFIERS } from '../data/modifiers';
@@ -144,4 +144,37 @@ export function carryInfo(world: World, owner: Owner, res: ResourceType): { cap:
     }
   }
   return { cap, base: Math.max(1, cap - added), sources };
+}
+
+/** Damage to buildings worth calling out in the panel: weak under ×0.5, strong from ×1. */
+export const STRUCT_WEAK_BELOW = 0.5;
+export const STRUCT_STRONG_FROM = 1;
+
+export interface StructureNote {
+  /** 'weak' goes in the Weak vs row, 'strong' in the Strong vs row. */
+  kind: 'weak' | 'strong';
+  /** Composed structure multiplier (Boons included). */
+  mult: number;
+  /** "Barely damages buildings ×0.2", "Tears down buildings ×4". */
+  text: string;
+}
+
+/**
+ * Building damage for the selection panel's Strong / Weak vs rows: Bowmen ×0.2 and Coursers ×0.4
+ * barely scratch a Nest, Gatebreakers ×4 tear it down; Ashpikes ×0.7 and the Warden ×0.8 get no
+ * entry. Reads the composed structMod (a Boon can raise it). Null for units that do not attack.
+ */
+export function structureNote(world: World, owner: Owner, type: UnitId, rank: number): StructureNote | null {
+  const def = UNITS[type];
+  if (!def || !(def.atk > 0) || !(def.cooldown > 0)) return null;
+  let mult = def.structMod ?? CLASS_STRUCT_MOD[def.cls];
+  try {
+    mult = unitStats(world, owner, type, rank).structMod;
+  } catch {
+    /* fall back to the table value */
+  }
+  const m = `×${Math.round(mult * 100) / 100}`;
+  if (mult < STRUCT_WEAK_BELOW) return { kind: 'weak', mult, text: `Barely damages buildings ${m}` };
+  if (mult >= STRUCT_STRONG_FROM) return { kind: 'strong', mult, text: `Tears down buildings ${m}` };
+  return null;
 }

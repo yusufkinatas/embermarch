@@ -111,12 +111,13 @@ function checkMap(map: RunMap): string[] {
     const allowed = BEACONS_ENABLED ? ['raze', 'holdfast', 'beacons'] : ['raze', 'holdfast'];
     if (n.type === 'battle' && n.col > 1 && !allowed.includes(b.objective)) errs.push(`objective ${b.objective}`);
     if (new Set(b.modifiers).size !== b.modifiers.length) errs.push('dup modifiers');
-    const extra = n.type === 'elite' ? 1 : 0;
-    const maxMods = (n.col <= 4 ? 1 : 2) + extra;
-    const minMods = (n.col >= 5 ? 1 : 0) + extra;
+    // An Elite gets one negative added only when its rolls hold none (fix pass 2, R4).
+    const elite = n.type === 'elite';
+    const maxMods = (n.col <= 4 ? 1 : 2) + (elite ? 1 : 0);
+    const minMods = elite || n.col >= 5 ? 1 : 0;
     if (n.col === 1 && b.modifiers.length) errs.push('col1 mods');
     if (b.modifiers.length > maxMods || b.modifiers.length < minMods) errs.push(`mods count ${n.id} ${b.modifiers.length}`);
-    if (n.type === 'elite' && !b.modifiers.some((m) => NEGATIVE_MODIFIERS.includes(m))) errs.push('elite negative');
+    if (elite && b.modifiers.filter((m) => NEGATIVE_MODIFIERS.includes(m)).length !== 1) errs.push(`elite negatives ${n.id} ${b.modifiers.join('+')}`);
     if (DOCTRINES[b.doctrine].fromDepth > b.depth) errs.push(`doctrine ${b.doctrine} at d${b.depth}`);
     if (b.modifiers.includes('swift_hunt') && b.doctrine !== 'hunt') errs.push('swift hunt doctrine');
     if (n.type === 'elite' && b.reward !== 'boon') errs.push('elite reward');

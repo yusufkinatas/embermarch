@@ -9,6 +9,7 @@ import { countUp, fmtTime, h, plural } from '../dom';
 import { divider, glyph, RESOURCE_GLYPH } from '../ui/glyphs';
 import { EmberField } from '../ui/embers';
 import { resolvePips } from '../ui/header';
+import { battleStatRows } from '../logic/results';
 
 const VICTORY_LINE: Record<BattleResult['objective'], string> = {
   raze: 'The Thorn Nests burn.',
@@ -74,21 +75,7 @@ export function mountResults(app: AppCtx, result: BattleResult, post: PostBattle
 
   // --- Stats
   const st = result.stats;
-  const statRows: [string, string | number][] = [
-    ['Thornwake slain', st.kills],
-    ['Units trained', st.unitsTrained],
-    ['Units lost', st.unitsLost],
-    ['Buildings raised', st.buildingsBuilt],
-    ['Buildings lost', st.buildingsLost],
-    ['Nests destroyed', result.nestsDestroyed],
-  ];
-  if (result.picketsDestroyed) statRows.push(['Pickets cleared', result.picketsDestroyed]);
-  if (result.cachesLooted) statRows.push(['Caches looted', result.cachesLooted + (result.ancientCacheLooted ? ' (Ancient)' : '')]);
-  if (result.lastStandsUsed) statRows.push(['Last Stands', result.lastStandsUsed]);
-  if (result.objective === 'holdfast' && outcome === 'victory') {
-    statRows.push(['Unbroken', result.unbroken ? 'Yes' : 'No']);
-    statRows.push(['Uprooted', result.uprooted ? 'Yes' : 'No']);
-  }
+  const statRows = battleStatRows(result);
   const statsPanel = h(
     'section',
     { class: 'panel studs res-panel res-stats' },

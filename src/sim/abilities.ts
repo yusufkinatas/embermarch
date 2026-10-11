@@ -5,6 +5,7 @@
  */
 import { ABILITIES, LAST_STAND, RALLY_HEARTH, WARDEN } from '../data/balance';
 import { HOUSES } from '../data/houses';
+import { UNITS } from '../data/units';
 import { alert, emit } from './alerts';
 import { dealAbilityDamage } from './combat';
 import { addBuff, centerOf, core, hasBuff, pointRectDist, ticks, ucore } from './core';
@@ -189,12 +190,16 @@ export function triggerLastStand(world: World, h: Building): void {
   for (const u of victims) {
     dealAbilityDamage(world, u, LAST_STAND.damage, h.id);
     if (!u.alive) continue;
+    // The Regent and the Antlered Lord are thrown farther and rooted, so a Last Stand buys real time.
+    const big = UNITS[u.type].cls === 'boss' || u.type === 'antlered_lord';
+    const kb = big ? LAST_STAND.bossKnockback : LAST_STAND.knockback;
     let dx = u.x - c.x;
     let dy = u.y - c.y;
     const len = Math.hypot(dx, dy) || 1;
-    dx = (dx / len) * LAST_STAND.knockback;
-    dy = (dy / len) * LAST_STAND.knockback;
+    dx = (dx / len) * kb;
+    dy = (dy / len) * kb;
     displaceUnit(world, u, dx, dy);
+    if (big) addBuff(u, 'rooted', world.tick + ticks(LAST_STAND.bossRootTime));
     emit(world, { t: 'knockback', id: u.id });
   }
   rallyHearth(world, true);

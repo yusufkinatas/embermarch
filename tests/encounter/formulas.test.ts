@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/core/rng';
-import { BLIGHT, ENEMY_UNLOCK_DEPTH, SPENT, blightParams, nestFactor, rootbreakerCap } from '../../src/data/balance';
+import { ADAPTATION, BLIGHT, ENEMY_UNLOCK_DEPTH, SPENT, blightParams, nestFactor, rootbreakerCap } from '../../src/data/balance';
 import { UNITS } from '../../src/data/units';
 import {
   NOT_SPENT,
+  adaptationBonus,
   adaptationFor,
   blightRadiusAt,
   bossSchedule,
@@ -26,6 +27,7 @@ import {
   resolvePrimaryDoctrine,
   sizeLabel,
   spentActive,
+  spentExtra,
   spentOnBroken,
   spentOnLaunch,
   splitValue,
@@ -257,14 +259,30 @@ describe('composition (GDD §I "Composition")', () => {
 });
 
 describe('light adaptation (SHOULD)', () => {
-  it('needs 6+ military with a 40% class share', () => {
-    expect(adaptationFor({ ranged: 5 }, 5, 3)).toBeNull();
-    expect(adaptationFor({ ranged: 2, infantry: 2, cavalry: 2 }, 6, 3)).toBeNull();
-    expect(adaptationFor({ ranged: 4, infantry: 3, cavalry: 3 }, 10, 3)?.counter).toBe('stagrider');
-    expect(adaptationFor({ ranged: 6, infantry: 2 }, 8, 1)?.counter).toBe('thornling');
-    expect(adaptationFor({ infantry: 6, ranged: 2 }, 8, 1)?.counter).toBe('spinecaster');
-    expect(adaptationFor({ cavalry: 5, ranged: 1 }, 6, 2)?.counter).toBe('briarguard');
-    expect(adaptationFor({ ranged: 6 }, 6, 2)?.word).toBe('bows');
+  it('needs 10+ military with a 55% class share, from wave 3 on', () => {
+    expect(ADAPTATION.minMilitary).toBe(10);
+    expect(ADAPTATION.shareThreshold).toBe(0.55);
+    expect(ADAPTATION.fromWave).toBe(3);
+    // Mixed armies never qualify.
+    expect(adaptationFor({ infantry: 4, ranged: 3, cavalry: 2 }, 9, 3, 3)).toBeNull();
+    expect(adaptationFor({ infantry: 5, ranged: 5 }, 10, 3, 3)).toBeNull();
+    expect(adaptationFor({ infantry: 8, ranged: 6, cavalry: 6 }, 20, 3, 5)).toBeNull();
+    expect(adaptationFor({ ranged: 9 }, 9, 3, 3)).toBeNull();
+    // A one-class army does, but only from wave 3.
+    expect(adaptationFor({ infantry: 6, ranged: 2, cavalry: 2 }, 10, 1, 3)).toMatchObject({ counter: 'spinecaster', word: 'spears' });
+    expect(adaptationFor({ infantry: 6, ranged: 2, cavalry: 2 }, 10, 1, 1)).toBeNull();
+    expect(adaptationFor({ infantry: 6, ranged: 2, cavalry: 2 }, 10, 1, 2)).toBeNull();
+    expect(adaptationFor({ ranged: 7, infantry: 3 }, 10, 1, 3)?.counter).toBe('thornling');
+    expect(adaptationFor({ ranged: 7, infantry: 3 }, 10, 3, 4)?.counter).toBe('stagrider');
+    expect(adaptationFor({ cavalry: 8, ranged: 2 }, 10, 2, 3)?.counter).toBe('briarguard');
+    expect(adaptationFor({ ranged: 10 }, 10, 2, 3)?.word).toBe('bows');
+  });
+  it('the bonus is halved when the doctrine already weights the counter at 40+', () => {
+    expect(adaptationBonus(0)).toBe(50);
+    expect(adaptationBonus(25)).toBe(50);
+    expect(adaptationBonus(39)).toBe(50);
+    expect(adaptationBonus(40)).toBe(25);
+    expect(adaptationBonus(50)).toBe(25);
   });
 });
 
@@ -293,6 +311,23 @@ describe('Spent clock (GDD §I "Spent")', () => {
     expect(spentOnBroken(c, 3, 110 * R, R)).toEqual(c);
     expect(spentOnBroken(c, 1, 10 * R, R)).toEqual(c);
     expect(spentActive(NOT_SPENT, 0)).toBe(false);
+  });
+  it('far Nests get a distance extra: +1 s per tile beyond 25, at most +30 s', () => {
+    expect(SPENT.baseTiles).toBe(25);
+    expect(SPENT.perTile).toBe(1);
+    expect(SPENT.extraCap).toBe(30);
+    expect(spentExtra(20)).toBe(0);
+    expect(spentExtra(25)).toBe(0);
+    expect(spentExtra(32)).toBe(7);
+    expect(spentExtra(44)).toBe(19);
+    expect(spentExtra(80)).toBe(30);
+    // 32 tiles → 52 s after the break, 44 tiles → 64 s.
+    expect(spentOnBroken(spentOnLaunch(3, 0, R, spentExtra(32)), 3, 20 * R, R, spentExtra(32)).until).toBe((20 + 52) * R);
+    expect(spentOnBroken(spentOnLaunch(3, 0, R, spentExtra(44)), 3, 20 * R, R, spentExtra(44)).until).toBe((20 + 64) * R);
+    // The launch cap grows by the same extra: 105 + 19 s.
+    const far = spentOnLaunch(3, 0, R, spentExtra(44));
+    expect(far.until).toBe(124 * R);
+    expect(spentOnBroken(far, 3, 110 * R, R, spentExtra(44)).until).toBe((110 + 64) * R);
   });
 });
 

@@ -895,17 +895,46 @@ export class FxSystem {
           ctx.lineTo(tg.x - nx, tg.y - ny);
           ctx.closePath();
         };
-        band(1);
-        ctx.fillStyle = done ? `rgba(255,90,60,${(0.5 * (1 - (age - tg.duration) / 0.3)).toFixed(3)})` : 'rgba(217,68,59,0.14)';
-        ctx.fill();
-        if (!done) {
-          band(p);
-          ctx.fillStyle = 'rgba(217,68,59,0.26)';
-          ctx.fill();
+        // Dash lane (the Antlered Lord's Wild Hunt): a filled, pulsing band about 35% opaque with an
+        // arrowhead at the far end, outlined dark-then-bright so it reads on dark Ashwood ground.
+        const ux = dx / len;
+        const uy = dy / len;
+        const head = (): void => {
+          const hw = tg.width * 0.95;
+          const hl = Math.min(len * 0.45, tg.width * 1.3);
+          const bx = tg.x2 - ux * hl;
+          const by = tg.y2 - uy * hl;
+          ctx.beginPath();
+          ctx.moveTo(tg.x2 + ux * hl * 0.1, tg.y2 + uy * hl * 0.1);
+          ctx.lineTo(bx - uy * hw, by + ux * hw);
+          ctx.lineTo(bx + uy * hw, by - ux * hw);
+          ctx.closePath();
+        };
+        if (done) {
           band(1);
-          ctx.strokeStyle = `rgba(255,80,60,${pulse.toFixed(3)})`;
-          ctx.lineWidth = 2;
-          ctx.stroke();
+          ctx.fillStyle = `rgba(255,90,60,${(0.55 * (1 - (age - tg.duration) / 0.3)).toFixed(3)})`;
+          ctx.fill();
+        } else {
+          band(1);
+          ctx.fillStyle = `rgba(232,62,44,${(0.22 + 0.16 * pulse).toFixed(3)})`;
+          ctx.fill();
+          band(p);
+          ctx.fillStyle = 'rgba(255,120,70,0.3)';
+          ctx.fill();
+          head();
+          ctx.fillStyle = `rgba(255,96,64,${(0.45 + 0.35 * pulse).toFixed(3)})`;
+          ctx.fill();
+          for (const [w, c] of [
+            [4.5, 'rgba(30,6,4,0.55)'],
+            [2.2, `rgba(255,150,110,${pulse.toFixed(3)})`],
+          ] as const) {
+            ctx.lineWidth = w;
+            ctx.strokeStyle = c;
+            band(1);
+            ctx.stroke();
+            head();
+            ctx.stroke();
+          }
         }
       }
     }

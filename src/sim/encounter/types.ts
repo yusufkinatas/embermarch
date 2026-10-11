@@ -71,14 +71,31 @@ export interface WaveHornView {
 /** Read-only summary for the HUD (built on demand by getEncounterView). */
 export interface EncounterView {
   objective: ObjectiveId;
-  /** e.g. "Nests 1/2 · Par 4:12", "Waves 4/6", "Burn the Root Hearts 1/3 · Regent Warded" */
+  /** e.g. "Nests 1/2 · Par 4:12", "Waves 4/6", "Burn the Root Hearts 1/3 · Wrath 6:20" */
   trackerText: string;
   /** Seconds left on par (null if no par or missed). */
   parRemaining: number | null;
   horn: WaveHornView | null;
   wavesLaunched: number;
-  boss: { name: string; hp: number; maxHp: number; phase: 1 | 2; warded: boolean; enraged: boolean } | null;
-  nests: { id: number; x: number; y: number; alive: boolean; spent: boolean; spentRemaining: number; seen: boolean }[];
+  /**
+   * `wrath`: the Regent broke free at 8:00 with Root Hearts alive (+20% damage); `wrathIn`: seconds
+   * to Wrath while it is still Enthroned (phase 1), else null.
+   */
+  boss: {
+    name: string;
+    hp: number;
+    maxHp: number;
+    phase: 1 | 2;
+    warded: boolean;
+    enraged: boolean;
+    wrath?: boolean;
+    wrathIn?: number | null;
+  } | null;
+  /**
+   * `dir`: compass direction from the Hearth ("NW"), or "near NW" / "far NW" when two Nests share
+   * a bucket. The same name is used in wave / Spent alerts.
+   */
+  nests: { id: number; x: number; y: number; alive: boolean; spent: boolean; spentRemaining: number; seen: boolean; dir?: string }[];
   ascendantIn: number | null;
   /** Crowns plundered so far this battle. */
   plunderCrowns: number;

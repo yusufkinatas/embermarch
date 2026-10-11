@@ -99,6 +99,9 @@ export function makeAI(world: World, role: Role, type: EnemyUnitId, o: AIOpts): 
     leaderId: o.leaderId ?? 0,
     waveUid: o.waveUid ?? 0,
     goalId: 0,
+    siegeTicks: 0,
+    siegeTick: -1,
+    committed: false,
   };
 }
 

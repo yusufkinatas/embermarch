@@ -1,7 +1,8 @@
 /**
  * Wave Horn (top center, GDD §O / §I): "Wave 3 · 0:24 · NE", composition icons with counts (when
  * scouted) or a size label, a note line, the doctrine banner once seen, Spent banners after a wave
- * breaks ("Wave 3 broken. NE Nest Spent 0:30") and the rising "Waves −30%" popup when a Nest falls.
+ * breaks ("Wave 3 broken. NE Nest Spent 0:30", later just "NE Nest Spent 0:15") and the rising
+ * "Waves −30%" popup when a Nest falls.
  */
 import { DOCTRINES } from '../../data/doctrines';
 import { TEXT } from '../../data/text';
@@ -14,13 +15,56 @@ import { GLYPHS, iconSrc } from '../glyphs';
 import type { HudContext } from './context';
 import type { TipContent } from './tooltip';
 
-interface SpentBanner {
+interface SpentBanner extends SpentLabelState {
   nestId: number;
-  wave: number;
   dir: string;
   el: HTMLElement;
   text: HTMLElement;
   bornAt: number;
+}
+
+/** Battle seconds the Spent ribbon names the wave that broke ("Wave 6 broken. …"); later only the Nest. */
+export const SPENT_WAVE_NAMED_S = 15;
+
+/** Per-ribbon memory for the wave number: which wave broke, when, and the last Spent time seen. */
+export interface SpentLabelState {
+  wave: number;
+  /** Battle time (world.time) the wave broke. */
+  brokeAt: number;
+  /** Last spentRemaining seen (null before the view reports it). */
+  lastLeft: number | null;
+  /** The Spent window was extended after this wave broke (a later wave launched): the number is stale. */
+  refreshed: boolean;
+}
+
+/**
+ * Should the ribbon still name the wave? Not once the Spent timer jumped up (refreshed by a later
+ * launch) or SPENT_WAVE_NAMED_S battle seconds after the break. Updates `st`. Pure; exported for tests.
+ */
+export function spentNamesWave(st: SpentLabelState, left: number | null, time: number): boolean {
+  if (left !== null && st.lastLeft !== null && left > st.lastLeft + 0.5) st.refreshed = true;
+  if (left !== null) st.lastLeft = left;
+  return !st.refreshed && time - st.brokeAt < SPENT_WAVE_NAMED_S;
+}
+
+/** The Spent time to compare, or null: before the view reports the Nest as Spent it reads 0, not a reading. */
+export function spentReading(n: { spent: boolean; spentRemaining: number } | undefined): number | null {
+  return n && n.spent ? n.spentRemaining : null;
+}
+
+/** TEXT.waveBroken with the optional structure name ('Root Heart' in the boss battle). */
+const waveBroken = TEXT.waveBroken as (wave: number, dir: string, spent: string, structure?: string) => string;
+
+/** "Wave 6 broken. SW Nest Spent 0:38" while fresh, "SW Nest Spent 0:23" afterwards. Pure; exported for tests. */
+export function spentRibbonText(wave: number | null, dir: string, left: string, structure = 'Nest'): string {
+  let t: string;
+  if (wave === null) t = `${dir} ${structure} Spent ${left}`;
+  else {
+    t = waveBroken(wave, dir, left, structure);
+    // Older data text without the structure parameter still says "Nest".
+    if (structure !== 'Nest' && !t.includes(structure)) t = t.replace(/\bNest\b/, structure);
+  }
+  return t.replace(/\s+/g, ' ').trim();
 }
 
 /** Real seconds the full Horn callout shows when a wave starts mustering. */
@@ -190,22 +234,25 @@ export class WaveHorn {
   /** A wave broke: show a ticking Spent banner until the Nest recovers. */
   addSpent(nestId: number, wave: number): void {
     const dir = this.nestDir(nestId);
+    const time = this.ctx.world.time;
     const existing = this.spent.find((s) => s.nestId === nestId);
     if (existing) {
-      existing.wave = wave;
-      existing.bornAt = this.ctx.now;
+      Object.assign(existing, { wave, bornAt: this.ctx.now, brokeAt: time, lastLeft: null, refreshed: false });
       return;
     }
     const el = h('div', 'bt-spent', this.spentBox);
     h('span', 'bt-spent-ic', el).innerHTML = GLYPHS.ember;
     const text = h('span', '', el);
-    this.spent.push({ nestId, wave, dir, el, text, bornAt: this.ctx.now });
+    this.spent.push({ nestId, wave, dir, el, text, bornAt: this.ctx.now, brokeAt: time, lastLeft: null, refreshed: false });
     while (this.spent.length > 2) this.spent.shift()!.el.remove();
     this.updateSpent();
   }
 
+  /** The Nest's direction from the Hearth: the encounter view's name ('far NW' when two share a bucket), else the compass. */
   nestDir(nestId: number): string {
     const { world } = this.ctx;
+    const named = (this.ctx.view?.nests.find((x) => x.id === nestId) as { dir?: unknown } | undefined)?.dir;
+    if (typeof named === 'string' && named) return named;
     const nest = world.entities.get(nestId);
     const hearth = world.entities.get(world.hearthId);
     const hx = hearth ? hearth.x : world.anchors.hearth.tx + 2;
@@ -216,6 +263,7 @@ export class WaveHorn {
 
   private updateSpent(): void {
     const v = this.ctx.view;
+    const structure = this.ctx.setup.objective === 'boss' ? 'Root Heart' : 'Nest';
     this.spent = this.spent.filter((s) => {
       const n = v?.nests.find((x) => x.id === s.nestId);
       // Before the view reports Spent we keep the banner briefly (events can precede the view refresh).
@@ -224,8 +272,11 @@ export class WaveHorn {
         s.el.remove();
         return false;
       }
+      // The view's Nest names ('near NW' / 'far NW') can arrive after the event.
+      s.dir = this.nestDir(s.nestId) || s.dir;
       const left = n ? formatCountdown(n.spentRemaining) : '';
-      setText(s.text, TEXT.waveBroken(s.wave, s.dir, left).replace(/\s+/g, ' ').trim());
+      const named = spentNamesWave(s, spentReading(n), this.ctx.world.time);
+      setText(s.text, spentRibbonText(named ? s.wave : null, s.dir, left, structure));
       return true;
     });
   }

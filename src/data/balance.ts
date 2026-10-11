@@ -100,6 +100,11 @@ export const GATHER = {
   depletedSearchRadius: 8,
   /** A builder whose remembered source ran out while it built looks this far for the same resource. */
   resumeSearchRadius: 10,
+  /**
+   * A Tiller rallied to a felled or crowded tree looks this far from the rally tile for a free tree,
+   * then for the nearest live tree even at the gatherer cap (the gather loop re-seeks when crowded).
+   */
+  rallyTreeRadius: 10,
 };
 
 /** Tiller flee rules (§D). */
@@ -364,6 +369,9 @@ export const LAST_STAND = {
   radius: 6,
   damage: 150,
   knockback: 3,
+  /** The Briar Regent and the Antlered Lord are thrown 6 tiles and rooted for 4 s. */
+  bossKnockback: 6,
+  bossRootTime: 4,
   /** Rally the Hearth triggers for free, ignoring cooldown. */
   freeRally: true,
 };
@@ -538,7 +546,10 @@ export const ASCENDANT = {
 export const HOLDFAST = {
   /** Raised so a Hearth and Warden alone never hold all six waves at d1-3 (§R, fix pass). */
   hbase: [8, 13, 18, 25, 34, 52],
-  /** Holdfast's own depth slope: F_H(d) = 1 + 0.06(d − 1). d6 stays within +3% of the old curve. */
+  /**
+   * Holdfast's own depth slope: F_H(d) = 1 + 0.06(d − 1). At d6 the six waves total about +5.5% over
+   * the old curve (old Hbase with F(d)), +0% to +11% per wave.
+   */
   fSlope: 0.06,
   launchTimes: [60, 105, 150, 195, 240, 285],
   musterLead: 30,
@@ -592,13 +603,25 @@ export const SPENT = {
   afterBroken: 45,
   /** ...or 105 s after launch if the wave is still alive. */
   maxFromLaunch: 105,
+  /**
+   * Distance extra per Nest: +perTile s for every tile its centre lies beyond baseTiles from the
+   * Hearth centre, at most extraCap s, added to both windows (32 tiles → 52 s, 44 tiles → 64 s).
+   */
+  baseTiles: 25,
+  perTile: 1.0,
+  extraCap: 30,
 };
 
 /** Light adaptation (§I, SHOULD). */
 export const ADAPTATION = {
-  minMilitary: 6,
-  shareThreshold: 0.4,
+  /** Needs 10+ military with a 55% class share, from wave 3 on. */
+  minMilitary: 10,
+  shareThreshold: 0.55,
+  fromWave: 3,
   weightBonus: 50,
+  /** The bonus is halved (25) when the doctrine already weights the counter type at 40 or more. */
+  heavyWeightAt: 40,
+  heavyBonusMult: 0.5,
   /** Counter type per dominant player class (Thornling instead of Stagrider at d1). */
   counters: {
     ranged: 'stagrider',
@@ -625,6 +648,14 @@ export const ENEMY_AI = {
   /** Wave units chase at most 6 tiles from the engagement start, then ignore that target for 5 s. */
   chaseLeash: 6,
   ignoreTime: 5,
+  /**
+   * Wave commit rule: a wave unit that has spent 20 s (counted only while no player military unit or
+   * Warden is within 8 tiles of it) on a player building other than its wave goal commits: it skips
+   * non-goal buildings (except one blocking its path) and marches on the goal. A player military
+   * unit within 8 tiles resets it (the Warden alone only pauses the count).
+   */
+  commitAfter: 20,
+  commitArmyRadius: 8,
   /** Thornwake units regenerate 1 HP/s on Blight. */
   blightRegen: 1,
 };
@@ -824,6 +855,8 @@ export const BOSS = {
   interval: 60,
   /** Wrath at 8:00: phase 2 starts, surviving Hearts keep spawning waves, Regent +20% damage. */
   wrathTime: 480,
+  /** A high-priority warning and a horn 30 s before Wrath. */
+  wrathWarnLead: 30,
   wrathDamagePct: 20,
   wrathInterval: 45,
   hearts: 3,

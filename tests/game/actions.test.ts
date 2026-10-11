@@ -34,10 +34,10 @@ function fakeAudio(played: SfxName[]): AudioSystem {
   };
 }
 
-function boot(house: HouseId = 'ardent', over: Partial<BattleSetup> = {}) {
+function boot(house: HouseId = 'ardent', over: Partial<BattleSetup> = {}, opts: { encounter?: boolean } = {}) {
   const setup = { ...quickBattleSetup({ objective: 'raze', depth: 1, seed: 7, house }), ...over };
   const gen = generateMap({ seed: setup.seed, objective: setup.objective, biome: setup.biome, depth: setup.depth, modifiers: setup.modifiers });
-  const world = createWorld(setup, gen, { skipEncounter: true });
+  const world = createWorld(setup, gen, { skipEncounter: !opts.encounter });
   const ui = createBattleUIState();
   const camera = new Camera();
   camera.setMapSize(world.map.w, world.map.h);
@@ -427,5 +427,61 @@ describe('battle-lane fixes (BattleActions)', () => {
     expect(ui.targeting).toBeNull();
     expect(courser.order.type).toBe('attackMove');
     expect(courser.queue.length).toBe(1);
+  });
+});
+
+describe('final fix pass: A-click on an enemy is a direct attack (B1)', () => {
+  it('A then click on an enemy Nest issues an attack on it for every selected unit', () => {
+    const { world, ui, actions, played } = boot('ardent', {}, { encounter: true });
+    world.debug.revealAll = true;
+    const nest = world.buildings.find((b) => b.alive && b.owner === 1 && b.type === 'thorn_nest');
+    expect(nest).toBeTruthy();
+    const army = [...own(world, 'courser'), ...own(world, 'warden')];
+    expect(army.length).toBeGreaterThanOrEqual(2);
+    actions.setSelection(army.map((u) => u.id));
+    actions.startAttackMove();
+    actions.targetAt(nest!.x, nest!.y, false);
+    expect(ui.targeting).toBeNull();
+    for (const u of army) {
+      expect(u.order.type).toBe('attack');
+      expect((u.order as { targetId: number }).targetId).toBe(nest!.id);
+    }
+    expect(played).toContain('acknowledge');
+  });
+
+  it('a ground click still attack-moves; Shift queues the direct attack as a waypoint', () => {
+    const { world, ui, actions } = boot('ardent', {}, { encounter: true });
+    world.debug.revealAll = true;
+    const nest = world.buildings.find((b) => b.alive && b.owner === 1 && b.type === 'thorn_nest')!;
+    const courser = own(world, 'courser')[0];
+    actions.setSelection([courser.id]);
+    actions.startAttackMove();
+    actions.targetAt(courser.x + 4, courser.y, true);
+    expect(courser.order.type).toBe('attackMove');
+    actions.targetAt(nest.x, nest.y, true);
+    expect(ui.targeting).toEqual({ kind: 'attackMove' });
+    expect(courser.queue.map((o) => o.type)).toEqual(['attack']);
+    expect((courser.queue[0] as { targetId: number }).targetId).toBe(nest.id);
+  });
+
+  it('minimap A-clicks (allowTarget false) stay attack-moves even over a Nest', () => {
+    const { world, actions } = boot('ardent', {}, { encounter: true });
+    world.debug.revealAll = true;
+    const nest = world.buildings.find((b) => b.alive && b.owner === 1 && b.type === 'thorn_nest')!;
+    const courser = own(world, 'courser')[0];
+    actions.setSelection([courser.id]);
+    actions.startAttackMove();
+    actions.targetAt(nest.x, nest.y, false, false);
+    expect(courser.order.type).toBe('attackMove');
+  });
+
+  it('an unexplored Nest is not picked: the click attack-moves', () => {
+    const { world, actions } = boot('ardent', {}, { encounter: true });
+    const nest = world.buildings.find((b) => b.alive && b.owner === 1 && b.type === 'thorn_nest')!;
+    const courser = own(world, 'courser')[0];
+    actions.setSelection([courser.id]);
+    actions.startAttackMove();
+    actions.targetAt(nest.x, nest.y, false);
+    expect(courser.order.type).toBe('attackMove');
   });
 });

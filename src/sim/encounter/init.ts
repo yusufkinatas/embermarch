@@ -21,7 +21,7 @@ import { spawnBuilding } from '../entities';
 import { ENEMY, NEUTRAL, type EnemyUnitId, type ModifierId, type World } from '../types';
 import { addBlightSource, buildCanBlight, recomputeWard } from './blight';
 import { composeGarrison } from './nests';
-import { bossSchedule, compassDir, composeStanding, isAscendantObjective, resolvePrimaryDoctrine, standardSchedule, standingWeights } from './formulas';
+import { bossSchedule, compassDir, composeStanding, isAscendantObjective, resolvePrimaryDoctrine, spentExtra, standardSchedule, standingWeights } from './formulas';
 import { centerOf, dist, hearth, isWalkableTile } from './geom';
 import { spawnRegent } from './boss';
 import { spawnLord } from './noble';
@@ -153,6 +153,7 @@ export function initEncounter(world: World): void {
       musterY: mp.y,
       alive: true,
       dir: compassDir(hc.x, hc.y, c.x, c.y),
+      spentExtra: spentExtra(dist(hc.x, hc.y, c.x, c.y)),
       garrisonCap: isBoss ? BOSS.heartGarrisonValue : garrisonValue(depth) + tb.garrisonAdd,
       garrison: [],
       regenTimer: 0,
@@ -169,6 +170,7 @@ export function initEncounter(world: World): void {
     b.nest.blightRadius = src.radius;
   });
   st.nestsTotal = st.nests.length;
+  disambiguateDirs(st.nests, hc.x, hc.y);
 
   // Thornspires (1 per Nest, +1 under Fortified Nests).
   for (const s of anchors.nestSpires) {
@@ -281,4 +283,38 @@ export function initEncounter(world: World): void {
 
   // Initial Blight and ward grid.
   recomputeWard(world, st);
+}
+
+const COMPASS16 = ['E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW', 'N', 'NNE', 'NE', 'ENE'];
+
+function compass16(fromX: number, fromY: number, toX: number, toY: number): string {
+  const a = Math.atan2(toY - fromY, toX - fromX);
+  return COMPASS16[((Math.round(a / (Math.PI / 8)) % 16) + 16) % 16];
+}
+
+/**
+ * Two Nests in the same compass bucket become "near NW" / "far NW" by Hearth distance (Horn,
+ * alerts, Spent markers), so "NW Nest Spent" never names two Nests at once. With three or more
+ * (the boss's Root Hearts), the nearest keeps "NE" and the others take their 16-point bearing
+ * ("NNE", "ENE"), falling back to "near NE" / "far NE" when those bearings coincide.
+ */
+export function disambiguateDirs(nests: NestRec[], hx: number, hy: number): void {
+  const byDir = new Map<string, NestRec[]>();
+  for (const n of nests) {
+    const list = byDir.get(n.dir);
+    if (list) list.push(n);
+    else byDir.set(n.dir, [n]);
+  }
+  for (const [dir, list] of byDir) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => dist(hx, hy, a.cx, a.cy) - dist(hx, hy, b.cx, b.cy));
+    const rest = list.slice(1);
+    const fine = rest.map((n) => compass16(hx, hy, n.cx, n.cy));
+    if (rest.length > 1 && new Set([...fine, dir]).size === fine.length + 1) {
+      rest.forEach((n, i) => (n.dir = fine[i]));
+    } else {
+      list[0].dir = `near ${dir}`;
+      rest[rest.length - 1].dir = `far ${dir}`;
+    }
+  }
 }

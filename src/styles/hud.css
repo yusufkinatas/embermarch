@@ -749,13 +749,25 @@
   border-color: #d9443b;
   animation: bt-horn-alarm 0.9s ease-in-out infinite;
 }
+/* Wrath: the Regent tore free with Root Hearts standing (+20% damage). */
+.bt-boss.wrath {
+  border-color: #e0573a;
+  box-shadow:
+    0 0 0 2px rgba(224, 87, 58, 0.25),
+    0 6px 18px rgba(0, 0, 0, 0.55);
+}
+.bt-boss.wrath .bt-boss-phase {
+  color: #ff8a5c;
+}
 
 /* Coach box */
 .bt-coach {
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: 440px;
+  /* Centred, it must stay clear of the objective tracker (280 px + 8 px margin, both × --s) in narrow
+   * windows; the column is scaled by --s, so the free width is divided by it. */
+  max-width: max(220px, min(440px, calc((100vw - 600px * var(--s)) / var(--s))));
   padding: 8px 10px 8px 10px;
   cursor: pointer;
   background: linear-gradient(180deg, rgba(44, 36, 26, 0.97), rgba(22, 18, 14, 0.97));
@@ -883,6 +895,13 @@
   color: var(--muted);
   text-decoration: line-through;
   opacity: 0.8;
+}
+/* Boss: "Wrath 7:12" counts down to the Regent tearing free; red in its last minute. */
+.bt-wrath {
+  color: var(--accent);
+}
+.bt-wrath.urgent {
+  color: #ff6b5b;
 }
 .bt-kindle {
   margin-top: 4px;
@@ -1093,7 +1112,7 @@
   position: absolute;
   left: 0;
   top: calc(16px * var(--s));
-  transform: translateX(calc(-50% + var(--lx, 0px)));
+  transform: translate(calc(-50% + var(--lx, 0px)), var(--ly, 0px));
   white-space: nowrap;
   font-size: max(11px, calc(11px * var(--s)));
   font-weight: 700;
@@ -1107,6 +1126,10 @@
 }
 .bt-arrow.tone-muster .bt-arrow-label {
   color: #dcb8f0;
+}
+/* A centre callout (LAST STAND) or the end banner is up: chevrons only. */
+.bt-arrows.labels-hidden .bt-arrow-label {
+  visibility: hidden;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1992,6 +2015,42 @@
   padding: 0 2px;
   line-height: 1.05;
   bottom: 1px;
+}
+/* Phones (HUD scale 0.6-0.85): the 11 px text floor makes two costs wider than a slot. Two or three
+ * costs wrap under a smaller icon at 10 px on screen (three: "50 35 / 20" at 9.5 px). */
+.bt-hud.phone .bt-cmd.cost2 .bt-cmd-ic,
+.bt-hud.phone .bt-cmd.cost3 .bt-cmd-ic {
+  width: 26px;
+  height: 26px;
+  margin-top: 4px;
+}
+.bt-hud.phone .bt-cmd.cost2 .bt-cmd-ic svg,
+.bt-hud.phone .bt-cmd.cost3 .bt-cmd-ic svg {
+  width: 20px;
+  height: 20px;
+}
+.bt-hud.phone .bt-cmd.cost2 .bt-cmd-cost,
+.bt-hud.phone .bt-cmd.cost3 .bt-cmd-cost {
+  flex-wrap: wrap;
+  row-gap: 0;
+  column-gap: 3px;
+  padding: 0 1px;
+  line-height: 1.05;
+  bottom: 1px;
+  font-size: calc(10px / var(--s));
+}
+.bt-hud.phone .bt-cmd.cost3 .bt-cmd-cost {
+  column-gap: 2px;
+  padding: 0;
+  font-size: calc(9.5px / var(--s));
+  letter-spacing: -0.02em;
+}
+.bt-hud.phone .bt-cmd.cost3 .bt-cost-item {
+  gap: 0;
+}
+.bt-hud.phone .bt-cmd.cost3 .bt-res-ic {
+  width: 9px;
+  height: 9px;
 }
 .bt-cmd-cd {
   --p: 0;

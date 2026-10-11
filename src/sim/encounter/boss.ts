@@ -10,10 +10,11 @@ import { displaceUnit } from '../nav/movement';
 import { PLAYER, TICK_RATE, type Building, type Unit, type World } from '../types';
 import { beginAdvance } from './ai';
 import { driveAdvance, driveAttack, driveHold } from './drive';
-import { composeWave, type WeightEntry } from './formulas';
+import { composeWave, fmtClock, type WeightEntry } from './formulas';
 import { centerOf, dist, distToEntity, emit, hearth, liveBuilding, liveUnit, pointSegment, spawnSpots, unitEdgeDist } from './geom';
 import { THINK_TICKS, countPools, makeAI, spawnEnemy } from './spawn';
 import { aiOf, type EncRuntime, type Telegraph } from './state';
+import type { EncounterView } from './types';
 
 const SEC = TICK_RATE;
 const FOREVER = 1e9;
@@ -39,6 +40,7 @@ export function spawnRegent(world: World, st: EncRuntime, throne: Building): voi
     throneY: c.y,
     phase: 1,
     wrath: false,
+    wrathWarned: false,
     enraged: false,
     nextLance: world.tick + Math.round(BOSS.thornLance.interval * SEC),
     nextBurst: -1,
@@ -106,7 +108,9 @@ function enterPhase2(world: World, st: EncRuntime, wrath: boolean): void {
   emit(world, {
     t: 'alert',
     kind: 'boss_phase',
-    text: wrath ? 'Wrath! The Regent tears free of its Throne.' : 'The Regent is uprooted.',
+    text: wrath
+      ? `Wrath! The Regent tears free of its Throne: +${BOSS.wrathDamagePct}% damage, and the surviving Root Hearts keep sending waves.`
+      : 'The Regent is uprooted.',
     x: u.x,
     y: u.y,
     priority: 'high',
@@ -334,6 +338,13 @@ export function tickBoss(world: World, st: EncRuntime): void {
   if (!boss) return;
   const u = liveUnit(world, boss.id);
   if (!u) return;
+  if (boss.phase === 1 && !boss.wrathWarned && world.time + 1e-6 >= BOSS.wrathTime - BOSS.wrathWarnLead) {
+    boss.wrathWarned = true;
+    if (heartsAlive(st) > 0 && world.time < BOSS.wrathTime) {
+      emit(world, { t: 'alert', kind: 'boss_phase', text: `The Regent stirs. Wrath in ${fmtClock(BOSS.wrathTime - world.time)}.`, x: u.x, y: u.y, priority: 'high' });
+      emit(world, { t: 'sfx', name: 'wave_horn' });
+    }
+  }
   if (boss.phase === 1 && world.time + 1e-6 >= BOSS.wrathTime) enterPhase2(world, st, heartsAlive(st) > 0);
 
   // Fire due telegraphs.
@@ -376,10 +387,17 @@ export function tickBoss(world: World, st: EncRuntime): void {
   thinkMarch(world, st, u);
 }
 
-export function bossView(world: World, st: EncRuntime): { name: string; hp: number; maxHp: number; phase: 1 | 2; warded: boolean; enraged: boolean } | null {
+/** Seconds until Wrath while the Regent is still Enthroned (phase 1), else null. */
+export function wrathIn(world: World, st: EncRuntime): number | null {
+  if (!st.boss || st.boss.phase !== 1) return null;
+  return Math.max(0, BOSS.wrathTime - world.time);
+}
+
+export function bossView(world: World, st: EncRuntime): NonNullable<EncounterView['boss']> | null {
   const boss = st.boss;
   if (!boss) return null;
   const u = liveUnit(world, boss.id);
-  if (!u) return { name: UNITS.briar_regent.name, hp: 0, maxHp: 1, phase: boss.phase, warded: false, enraged: boss.enraged };
-  return { name: UNITS.briar_regent.name, hp: u.hp, maxHp: u.maxHp, phase: boss.phase, warded: boss.phase === 1, enraged: boss.enraged };
+  const common = { name: UNITS.briar_regent.name, phase: boss.phase, enraged: boss.enraged, wrath: boss.wrath, wrathIn: wrathIn(world, st) };
+  if (!u) return { ...common, hp: 0, maxHp: 1, warded: false };
+  return { ...common, hp: u.hp, maxHp: u.maxHp, warded: boss.phase === 1 };
 }

@@ -171,13 +171,6 @@ export function finishBattle(run: RunState, meta: MetaSave, result: BattleResult
   run.bossLastStandsUsed = 0;
 
   const notes: string[] = [];
-  if (!runOver && outcome === 'defeat' && !boss && run.retinue.length === 0) {
-    // Stragglers: a lost battle costs the whole Retinue. Like Camp Drill on an empty Retinue, a
-    // few soldiers find their way back, so the next battle (often a forced Elite) is not hopeless.
-    run.sellswords.push(...makeUnits(CAMP.drillEmptyUnit, CAMP.drillEmptyCount, CAMP.drillEmptyRank));
-    notes.push(`${STRAGGLERS_LABEL}: ${unitsLabel(CAMP.drillEmptyUnit, CAMP.drillEmptyCount, CAMP.drillEmptyRank)} fight beside you next battle.`);
-  }
-
   if (!runOver) {
     if (run.boons.includes('baggage_train')) run.pending.push({ kind: 'baggage', res: baggageFrom(result.unspent) });
     const survivors = cloneUnits(result.survivors ?? []);
@@ -185,6 +178,14 @@ export function finishBattle(run: RunState, meta: MetaSave, result: BattleResult
     if (outcome === 'victory' || outcome === 'retreat') {
       if (survivors.length > 0) run.rewardQueue.push(retinueStep(survivors));
       else run.retinue = [];
+    }
+    // Stragglers: a lost battle, or a Retreat with no soldier left standing, empties the Retinue.
+    // Like Camp Drill on an empty Retinue, a few soldiers find their way back, so the next battle
+    // (often a forced Elite) is not hopeless. Checked after the Retinue is settled above.
+    const carried = outcome === 'retreat' ? survivors : [];
+    if (!boss && outcome !== 'victory' && carried.length === 0 && run.retinue.length === 0) {
+      run.sellswords.push(...makeUnits(CAMP.drillEmptyUnit, CAMP.drillEmptyCount, CAMP.drillEmptyRank));
+      notes.push(`${STRAGGLERS_LABEL}: ${unitsLabel(CAMP.drillEmptyUnit, CAMP.drillEmptyCount, CAMP.drillEmptyRank)} fight beside you next battle.`);
     }
     materializeHead(run, meta);
   }

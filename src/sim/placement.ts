@@ -102,6 +102,8 @@ export function findSpawnTile(
   prefX?: number,
   prefY?: number,
   skip?: Unit,
+  /** Candidate tile centres to pass over (e.g. next to the starting Tillers). */
+  avoid?: (x: number, y: number) => boolean,
 ): { x: number; y: number } | null {
   const mw = world.map.w;
   const mh = world.map.h;
@@ -131,6 +133,7 @@ export function findSpawnTile(
     for (const t of frontier) {
       const x = t % mw;
       const y = (t - x) / mw;
+      if (avoid && avoid(x + 0.5, y + 0.5)) continue;
       if (!unitNear(world, x + 0.5, y + 0.5, 0.45, skip)) return { x: x + 0.5, y: y + 0.5 };
     }
     const next: number[] = [];

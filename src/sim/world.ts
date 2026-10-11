@@ -64,15 +64,25 @@ function cloneMap(m: GameMap): GameMap {
   };
 }
 
+/** Non-Tillers keep this far (tile centres) from every starting Tiller. */
+const START_TILLER_CLEARANCE = 1.5;
+
 /**
  * Starting units placed in rings around the Hearth (no unit overlap). Tillers gather below the
- * Hearth; every other unit (free Courser, Warden, Retinue, Sellswords) on the far side, so a box
+ * Hearth; every other unit (free Courser, Warden, Retinue, Sellswords) on the far side, and never
+ * within 1.5 tiles of a Tiller even when a large Retinue wraps around the first ring, so a box
  * dragged over the Tillers selects only Tillers (box priority is military first, GDD §O).
  */
 function placeAround(world: World, hearth: Building, type: PlayerUnitId, opts: SpawnUnitOpts): void {
   const tiller = type === 'tiller';
   const pref = tiller ? undefined : { x: hearth.x, y: hearth.ty - 2 };
-  const spot =
+  let spot: { x: number; y: number } | null = null;
+  if (!tiller) {
+    const tillers = world.units.filter((u) => u.alive && u.owner === PLAYER && u.type === 'tiller');
+    const nearTiller = (x: number, y: number): boolean => tillers.some((t) => Math.hypot(t.x - x, t.y - y) < START_TILLER_CLEARANCE);
+    spot = findSpawnTile(world, hearth, 10, pref?.x, pref?.y, undefined, nearTiller);
+  }
+  spot ??=
     findSpawnTile(world, hearth, 10, pref?.x, pref?.y) ??
     (tiller ? { x: hearth.x, y: hearth.ty + hearth.h + 0.5 } : { x: hearth.x, y: hearth.ty - 0.5 });
   spawnUnit(world, type, PLAYER, spot.x, spot.y, opts);

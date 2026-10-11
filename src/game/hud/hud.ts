@@ -3,11 +3,12 @@
  * horn / hints, and refreshes widgets (cheap text every frame, everything else at ~10 Hz with
  * diffed writes).
  */
+import { BOSS } from '../../data/balance';
 import { getEncounterView } from '../../sim/encounter';
 import type { AlertKind, GameEvent, PlayerBuildingId, UnitId, World } from '../../sim/types';
 import { PLAYER } from '../../sim/types';
 import { AlertFeed, LossNotices, THREAT_KINDS, ThreatMarkers, UNATTENDED_TEXT, UnattendedFoundations, type AlertItem } from '../alerts';
-import { h } from '../dom';
+import { h, toggleClass } from '../dom';
 import { formatCountdown, normalizePct } from '../format';
 import type { HintDirector } from '../hints';
 import { AlertFeedView } from './alertFeed';
@@ -36,10 +37,18 @@ const MILITARY_BUILDINGS: ReadonlySet<PlayerBuildingId> = new Set<PlayerBuilding
 /** Largest HUD scale (2560×1440 and up). */
 export const HUD_SCALE_MAX = 1.6;
 
-/** HUD scale for a viewport: 1 at 1280×720, growing with the viewport to 1.6 at 2560×1440 and up. */
+/** Smallest HUD scale: 0.85 on desktop sizes, 0.6 on phones (shortest side under 500 px). */
+export const HUD_SCALE_MIN = 0.85;
+export const HUD_SCALE_PHONE = 0.6;
+
+/**
+ * HUD scale for a viewport: 1 at 1280×720, growing with the viewport to 1.6 at 2560×1440 and up.
+ * Phones (landscape iPhone 734×343) go down to 0.6 so the bottom panel leaves room for the field.
+ */
 export function hudScale(w: number, hgt: number): number {
   const s = Math.min(w / 1280, hgt / 720);
-  return Math.max(0.85, Math.min(HUD_SCALE_MAX, s));
+  const min = Math.min(w, hgt) < 500 ? HUD_SCALE_PHONE : HUD_SCALE_MIN;
+  return Math.max(min, Math.min(HUD_SCALE_MAX, s));
 }
 
 /** Default camera zoom for a viewport height: 1 up to 900 px, growing to 1.4 at 1260 px and up. */
@@ -56,6 +65,8 @@ export function maxZoomFor(viewH: number): number {
 const SCOUT_WINDOW = 120;
 
 export interface HudHooks {
+  /** The bottom of the top HUD band (top bar + tracker / Horn / boss bar) moved, in CSS px. */
+  topBand?(px: number): void;
   openMenu(): void;
   dismissHint(): void;
   /** A hint became seen (dismissed, completed by the player's action, or replaced). */
@@ -89,6 +100,7 @@ export class Hud {
   private slowAcc = SLOW_INTERVAL;
   private viewFailed = false;
   private readonly topCenter: HTMLElement;
+  private topBandPx = -1;
   private readonly unattended = new UnattendedFoundations();
   private readonly losses = new LossNotices();
   private lossItem: AlertItem | null = null;
@@ -154,8 +166,26 @@ export class Hud {
     const s = hudScale(w, hgt);
     this.ctx.scale = s;
     this.el.style.setProperty('--s', s.toFixed(3));
+    // Phones (scale under the desktop floor): compact command-card costs and top-column widths.
+    toggleClass(this.el, 'phone', s < HUD_SCALE_MIN);
     this.minimap.resize(s, dpr);
+    this.measureTopBand();
     return s;
+  }
+
+  /**
+   * Measure the bottom of the top HUD band: the objective tracker column (top right: the card plus the
+   * Boon and modifier rows under it), which also reaches below the collapsed Horn. The battle camera
+   * lets a pan bring the map's top rows out from under it (B7). The coach card and the Horn callout
+   * come and go, so they are left out (a moving clamp would make the view jump on the next pan).
+   */
+  measureTopBand(): void {
+    const r = this.tracker.el.getBoundingClientRect();
+    if (!(r.height > 0)) return;
+    const px = Math.round(r.bottom - this.el.getBoundingClientRect().top);
+    if (Math.abs(px - this.topBandPx) < 1) return;
+    this.topBandPx = px;
+    this.hooks.topBand?.(px);
   }
 
   error(msg: string, now: number): void {
@@ -179,6 +209,7 @@ export class Hud {
     this.wheel.setVisible(c.ui.showCounterWheel && !menuOpen);
     this.notice.update(now);
     this.callout.update(now, this.banner.visible);
+    this.arrows.setLabelsHidden(this.callout.visible || this.banner.visible);
     this.slowAcc += dt;
     if (this.slowAcc >= SLOW_INTERVAL) {
       this.slowAcc = 0;
@@ -214,6 +245,7 @@ export class Hud {
     this.menu.update();
     this.updateMarkers();
     this.arrows.setAvoid(this.topCenterRect());
+    this.measureTopBand();
     this.updateHints(now);
     this.tooltip.refresh();
   }
@@ -420,7 +452,17 @@ export class Hud {
           this.callout.show('Last Stand', 'The Flame endures. −1 Resolve', now);
           break;
         case 'bossPhase':
-          if (ev.phase === 2) this.callout.show('The Regent Uprooted', 'It marches on your Hearth.', now, 'thorn');
+          if (ev.phase === 2) {
+            // At 8:00 with Root Hearts standing the Regent tears free in Wrath instead of being uprooted.
+            let wrath = false;
+            try {
+              wrath = !!(getEncounterView(c.world).boss as { wrath?: boolean } | null)?.wrath;
+            } catch {
+              wrath = false;
+            }
+            if (wrath) this.callout.show('Wrath', `The Regent tears free. +${BOSS.wrathDamagePct}% damage.`, now, 'thorn');
+            else this.callout.show('The Regent Uprooted', 'It marches on your Hearth.', now, 'thorn');
+          }
           break;
         default:
           break;

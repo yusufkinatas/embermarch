@@ -115,6 +115,10 @@ export class NoticeLine {
     this.until = now + (kind === 'error' ? 2.2 : 1.8);
   }
 
+  get visible(): boolean {
+    return !this.el.classList.contains('bt-hidden');
+  }
+
   /** `suppressed`: the victory / defeat banner is up, so the callout must not sit on top of it. */
   update(now: number, suppressed = false): void {
     if (this.until && (now > this.until || suppressed)) {
@@ -146,6 +150,10 @@ export class Callout {
     this.el.classList.add('enter');
     setHidden(this.el, false);
     this.until = now + 2.6;
+  }
+
+  get visible(): boolean {
+    return !this.el.classList.contains('bt-hidden');
   }
 
   /** `suppressed`: the victory / defeat banner is up, so the callout must not sit on top of it. */

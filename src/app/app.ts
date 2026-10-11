@@ -3,6 +3,7 @@ import '../styles/ui.css';
 import '../styles/screens.css';
 import '../styles/map.css';
 import '../styles/ceremony.css';
+import '../styles/notice.css';
 import { BattleController } from '../game/battle';
 import { getAudio } from '../audio/sfx';
 import type { SfxName } from '../game/types';
@@ -16,6 +17,8 @@ import { Overlays, type ModalHandle } from './ui/overlay';
 import { openSettings } from './ui/settings';
 import { mountScreen } from './screens';
 import { settleFinishedRun } from './logic/flow';
+import { installAudioUnlock } from './logic/device';
+import { needsDesktopNotice, showDesktopNotice } from './ui/deviceNotice';
 
 type QuickBattleOpts = Parameters<RunApi['quickBattleSetup']>[0];
 
@@ -54,6 +57,7 @@ export class AppShell implements AppCtx {
   private readonly host: HTMLElement;
   private current: ScreenHandle | null = null;
   private currentId: ScreenId = 'title';
+  /** Settings were applied to the audio system after its first unlock. */
   private audioUnlocked = false;
   /** Guards endRun from being applied twice for the same run. */
   private endingRun: RunState | null = null;
@@ -99,6 +103,8 @@ export class AppShell implements AppCtx {
       return;
     }
     this.go({ screen: 'title' });
+    // Phones and tablets (often a link opened from a chat app): say the game wants a mouse and keyboard.
+    if (needsDesktopNotice()) showDesktopNotice(document.body, () => this.click());
   }
 
   // ------------------------------------------------------------------ routing
@@ -290,18 +296,19 @@ export class AppShell implements AppCtx {
   // ------------------------------------------------------------------ internals
 
   private installInput(): void {
-    const unlock = (): void => {
-      if (this.audioUnlocked) return;
-      this.audioUnlocked = true;
+    // Every gesture re-tries: a touch pointerdown is not a user activation on iOS / Android, so the
+    // context it creates stays suspended until a pointerup, touchend or click resumes it. unlock() is a
+    // no-op while the context runs.
+    installAudioUnlock(window, () => {
       try {
         getAudio().unlock();
       } catch {
         /* audio unavailable */
       }
+      if (this.audioUnlocked) return;
+      this.audioUnlocked = true;
       this.applySettings();
-    };
-    window.addEventListener('pointerdown', unlock, { capture: true });
-    window.addEventListener('keydown', unlock, { capture: true });
+    });
 
     // RTS players right-click by habit: no browser menu on any screen, except in text fields.
     window.addEventListener('contextmenu', (e) => {

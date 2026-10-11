@@ -1,6 +1,6 @@
 /**
  * Objective tracker (top right, GDD §O): tracker text from the encounter view ("Nests 1/2 · Par
- * 4:12", "Kindling 140/450", "Waves 4/6", "Burn the Root Hearts 1/3 · Regent Warded"), the par
+ * 4:12", "Kindling 140/450", "Waves 4/6", "Burn the Root Hearts 1/3 · Wrath 7:12"), the par
  * timer (greys out when missed), battle Crowns, and the Boon tray with tooltips. Modifiers sit
  * under the Boons.
  */
@@ -14,6 +14,17 @@ import { clearChildren, h, setBar, setHidden, setHtml, setText, toggleClass } fr
 import { formatCountdown } from '../format';
 import { GLYPHS, TAG_GLYPH } from '../glyphs';
 import type { HudContext } from './context';
+
+/** Seconds left under which the boss Wrath countdown turns red. */
+export const WRATH_URGENT_S = 60;
+
+/** Is a "Wrath m:ss" tracker segment in its last minute? Uses the view's wrathIn when present. */
+export function wrathUrgent(seg: string, wrathIn?: number | null): boolean {
+  if (typeof wrathIn === 'number') return wrathIn < WRATH_URGENT_S;
+  const m = /(\d+):(\d{2})/.exec(seg);
+  if (!m) return seg.trim() === 'Wrath'; // the countdown ran out
+  return Number(m[1]) * 60 + Number(m[2]) < WRATH_URGENT_S;
+}
 
 export class Tracker {
   readonly el: HTMLDivElement;
@@ -85,6 +96,7 @@ export class Tracker {
     const parTotal = parSeconds(setup.objective, view.nests.length);
     const parMissed = parTotal !== null && view.parRemaining === null;
     const segs = view.trackerText.split(' · ').filter(Boolean);
+    const wrathIn = (view.boss as { wrathIn?: number | null } | null)?.wrathIn;
     const hasPar = segs.some((s) => s.startsWith('Par'));
     if (!hasPar && view.parRemaining !== null) segs.push(`Par ${formatCountdown(view.parRemaining)}`);
     else if (!hasPar && parMissed) segs.push('Par missed');
@@ -95,8 +107,10 @@ export class Tracker {
       segs.forEach((s, i) => {
         if (i > 0) h('span', 'bt-sep', this.lines, '·');
         const isPar = s.startsWith('Par');
-        const span = h('span', isPar ? 'bt-par' : 'bt-goal', this.lines, s);
+        const isWrath = s.startsWith('Wrath');
+        const span = h('span', isPar ? 'bt-par' : isWrath ? 'bt-wrath' : 'bt-goal', this.lines, s);
         if (isPar) toggleClass(span, 'missed', parMissed || s === 'Par missed');
+        if (isWrath) toggleClass(span, 'urgent', wrathUrgent(s, wrathIn));
       });
     }
     if (view.kindling) {

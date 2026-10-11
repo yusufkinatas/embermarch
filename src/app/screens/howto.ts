@@ -43,7 +43,7 @@ const CONTROL_GROUPS: ControlGroup[][] = [
         one('Dbl-click', 'Select all of that type on screen'),
         one('RMB', 'Smart command: move, attack, gather, build / repair, rally'),
         chord('Queue orders (up to 8)', 'Shift', 'RMB'),
-        seq('Attack-move', 'A', 'LMB'),
+        seq('Attack-move. On an enemy: attack it.', 'A', 'LMB'),
         one('S', 'Stop'),
         one('G', 'Hold ground'),
         one('Space', 'Jump to the latest alert'),
@@ -136,7 +136,7 @@ function controlsTab(): Child {
   cols[2].append(
     h('div', { class: 'panel-title ctrl-head' }, glyph('hammer'), 'With Tillers selected'),
     h('div', { class: 'build-keys' }, BUILD_KEYS.map(([k, n]) => h('span', { class: 'bk' }, h('span', { class: 'kbd' }, k), n))),
-    h('div', { class: 'tiny muted' }, 'Shift keeps placing. RMB or Esc cancels.'),
+    h('div', { class: 'tiny muted' }, 'Shift keeps placing and queues the foundations in order. RMB or Esc cancels.'),
   );
   return h(
     'div',
@@ -264,7 +264,7 @@ function nestsTab(): Child {
     ['nest', 'Muster', 'The horn sounds 30 s before a wave launches. Units gather in front of a Nest.'],
     ['sun', 'Scout', 'Get any unit within 6 tiles of the muster point to see the wave’s makeup on the Horn.'],
     ['swords', 'Break the wave', 'Hold your line. Counter what you saw. The Hearth and towers fire on anything in range.'],
-    ['hourglass', 'Strike while Spent', `A Nest that launched is Spent: it takes ×${SPENT.damageMult} damage and its guard stops regrowing, until ${SPENT.afterBroken} s after its wave breaks.`],
+    ['hourglass', 'Strike while Spent', `A Nest that launched is Spent: it takes ×${SPENT.damageMult} damage and its guard stops regrowing, for at least ${SPENT.afterBroken} s after its wave breaks (longer for a far Nest).`],
     ['torch', 'Burn the Nest', 'Every Nest that falls shrinks the waves and pulls its Blight back.'],
   ];
   return h(
@@ -279,6 +279,7 @@ function nestsTab(): Child {
       'div',
       { class: 'howto-facts' },
       h('div', null, h('b', null, 'Defend, then punish. '), 'Pushing into a Nest that just launched is the strongest move in the game. Its garrison is thin and its walls are soft.'),
+      h('div', null, h('b', null, 'Who burns Nests. '), 'Ashpikes and the Warden burn Nests. Arrows and horses barely scratch them. Right-click a Nest, or press A and click it, to attack it.'),
       h('div', null, h('b', null, 'Blight. '), 'Violet Blight spreads from each Nest. It slows your units, blocks building and withers structures it reaches.'),
       h('div', null, h('b', null, 'Doctrines. '), 'Each battle the Thornwake favours a doctrine. The briefing hints at it; a Nest’s banner shows it once seen.'),
     ),

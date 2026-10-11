@@ -22,6 +22,7 @@ import {
   onPlayerBuildingChanged,
   tickEncounter,
 } from '../../src/sim/encounter';
+import { fmtClock } from '../../src/sim/encounter/formulas';
 import { makeAI } from '../../src/sim/encounter/spawn';
 import { getState, type EnemyAI } from '../../src/sim/encounter/state';
 import { ENEMY, PLAYER, type EnemyUnitId, type GameEvent, type Unit, type World } from '../../src/sim/types';
@@ -124,20 +125,22 @@ describe('wave director', () => {
     }
     expect(getEncounterView(w).horn!.phase).toBe('advancing');
 
-    // Break the wave 10 s after launch: Spent ends 45 s later.
+    // Break the wave 10 s after launch: Spent ends 45 s (plus the Nest's distance extra) later.
+    const extra = st(w).nests.find((n) => n.id === nestId)!.spentExtra;
+    expect(extra).toBeGreaterThanOrEqual(0);
     stepTo(w, 116);
     fake.killAll(w, waveUnits(w, 1));
     fake.step(w, 0.1);
     expect(events(w, 'waveBroken')).toHaveLength(1);
     const alert = w.events.find((e) => e.t === 'alert' && e.kind === 'wave_broken');
-    expect(alert && alert.t === 'alert' && alert.text).toMatch(/^Wave 1 broken\. [NESW]{1,2} Nest Spent 0:45$/);
+    expect(alert && alert.t === 'alert' && alert.text).toMatch(new RegExp(`^Wave 1 broken\\. [NESW]{1,2} Nest Spent ${fmtClock(45 + extra)}$`));
     const v = getEncounterView(w);
     const vn = v.nests.find((n) => n.id === nestId)!;
     expect(vn.spent).toBe(true);
-    expect(vn.spentRemaining).toBeCloseTo(45, 0);
-    stepTo(w, 160.9);
+    expect(vn.spentRemaining).toBeCloseTo(45 + extra, 0);
+    stepTo(w, 160.9 + extra);
     expect(getEncounterView(w).nests.find((n) => n.id === nestId)!.spent).toBe(true);
-    stepTo(w, 161.3);
+    stepTo(w, 161.3 + extra);
     expect(getEncounterView(w).nests.find((n) => n.id === nestId)!.spent).toBe(false);
   });
 
@@ -467,7 +470,7 @@ describe('Boss: the Briar Regent', () => {
     const regent = w.units.find((u) => u.type === 'briar_regent')!;
     expect(regent.untargetable).toBe(true);
     expect(regent.maxHp).toBe(regentHp(3));
-    expect(getEncounterView(w).trackerText).toBe('Burn the Root Hearts 0/3 · Regent Warded');
+    expect(getEncounterView(w).trackerText).toMatch(/^Burn the Root Hearts 0\/3 · Wrath [78]:\d\d$/);
     const hearts = fake.nestBuildings(w);
     expect(hearts.every((h) => h.type === 'root_heart')).toBe(true);
     fake.killEntity(w, hearts[0], 0);
@@ -627,11 +630,16 @@ describe('director details', () => {
     expect(events(h, 'raidLaunch')).toHaveLength(0);
   });
 
-  it('light adaptation: a bow-heavy army draws Stagriders and a Horn note', () => {
+  it('light adaptation: from wave 3, a bow-heavy army draws Stagriders and a Horn note', () => {
     const w = fake.makeWorld({ objective: 'raze', depth: 2, doctrine: 'swarm' });
-    for (let i = 0; i < 8; i++) fake.spawnUnit(w, 'bowman', PLAYER, 10 + i * 0.5, 12);
+    for (let i = 0; i < 12; i++) fake.spawnUnit(w, 'bowman', PLAYER, 10 + (i % 6) * 0.5, 12 + Math.floor(i / 6));
     stepTo(w, 102 - 30 + 0.2);
-    expect(getEncounterView(w).horn!.notes).toContain('The thorns have learned your bows.');
+    // Wave 1 (and 2) never adapt.
+    expect(getEncounterView(w).horn!.wave).toBe(1);
+    expect(getEncounterView(w).horn!.notes).not.toContain('The thorns have learned your bows.');
+    debugForceWave(w, 3);
+    const w3 = st(w).waves.find((x) => x.n === 3)!;
+    expect(w3.notes).toContain('The thorns have learned your bows.');
   });
 
   it('garrisons regenerate 1 value per 10 s, but not while the Nest is Spent', () => {

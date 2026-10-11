@@ -1,0 +1,124 @@
+/*
+ * Device notice for phones, tablets and small windows (src/app/ui/deviceNotice.ts).
+ * Sized in px on purpose: on small touch screens the rem design canvas shrinks below 12px per rem
+ * (theme.css), and this card must stay readable there.
+ */
+.device-notice {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  background: rgba(11, 10, 15, 0.88);
+  font-size: 16px;
+  animation: dn-in 0.25s var(--ease-out);
+}
+@keyframes dn-in {
+  from {
+    opacity: 0;
+  }
+}
+/* margin:auto (not align-items:center) so a card taller than the screen scrolls from its top. */
+.dn-card {
+  margin: auto;
+  width: 100%;
+  max-width: 480px;
+  padding: 22px 24px 18px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  background: var(--panel-grad);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-family: var(--font-body);
+  text-align: center;
+}
+.dn-kicker {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.dn-title {
+  margin: 8px 0 12px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 21px;
+  line-height: 1.22;
+  color: var(--accent-hi);
+}
+.dn-body {
+  margin: 0 0 10px;
+  font-size: 16px;
+  line-height: 1.4;
+}
+.dn-portrait {
+  display: none;
+  color: var(--accent);
+}
+@media (orientation: portrait) {
+  .dn-portrait {
+    display: block;
+  }
+}
+.dn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.device-notice .dn-btn {
+  min-height: 44px;
+  padding: 0 20px;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  touch-action: manipulation;
+}
+.dn-url {
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--bronze);
+  border-radius: 3px;
+  background: var(--panel-deep);
+  color: var(--text);
+  font: 14px var(--font-body);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.dn-touch {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+/* Landscape phones (about 340-480 px tall): a wider, shorter card with the buttons side by side. */
+@media (max-height: 500px) {
+  .dn-card {
+    max-width: 620px;
+    padding: 14px 20px 12px;
+  }
+  .dn-title {
+    margin: 4px 0 8px;
+    font-size: 18px;
+  }
+  .dn-body {
+    margin-bottom: 6px;
+    font-size: 14px;
+    line-height: 1.35;
+  }
+  .dn-actions {
+    flex-wrap: nowrap;
+    margin-top: 10px;
+  }
+  .dn-touch {
+    margin-top: 8px;
+    font-size: 12px;
+  }
+}

@@ -10,7 +10,7 @@ import { quickBattleSetup } from '../../src/run';
 import { creditKill } from '../../src/sim/hooks';
 import { spawnUnit } from '../../src/sim/entities';
 import { pointRectDist } from '../../src/sim/core';
-import type { BattleSetup, Building, ObjectiveId, World } from '../../src/sim/types';
+import type { BattleSetup, Building, CarriedUnit, ObjectiveId, World } from '../../src/sim/types';
 import { PLAYER } from '../../src/sim/types';
 import { buildBattleResult, createWorld } from '../../src/sim/world';
 import { makeWorld } from './helpers';
@@ -77,6 +77,23 @@ describe('starting military spawns clear of the Tillers (box-select the Tillers)
     const w = realStart(setup);
     expect(w.units.filter((u) => u.owner === PLAYER && u.carried)).toHaveLength(6);
     expect(layoutProblems(w)).toBe('');
+  });
+});
+
+describe('a large start (16 non-Tillers) still keeps the Tiller box clear', () => {
+  const vets = (type: CarriedUnit['type'], n: number): CarriedUnit[] => Array.from({ length: n }, () => ({ type, rank: 1, kills: 3 }));
+  it('Raze d2 with a 12-pop Retinue and 2 Sellswords, seeds 1-6', () => {
+    const bad: string[] = [];
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const setup = quickBattleSetup({ objective: 'raze', depth: 2, seed });
+      setup.retinue = [...vets('ashpike', 6), ...vets('bowman', 6)];
+      setup.sellswords = vets('ashpike', 2);
+      const w = realStart(setup);
+      expect(w.units.filter((u) => u.owner === PLAYER && u.type !== 'tiller')).toHaveLength(16);
+      const p = layoutProblems(w);
+      if (p) bad.push(`seed ${seed}: ${p}`);
+    }
+    expect(bad).toEqual([]);
   });
 });
 

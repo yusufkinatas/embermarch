@@ -168,26 +168,132 @@ export class GhostTracker {
 const SOFT = 4;
 const MARGIN = 1;
 
+/** Canvas filter support (Safari / WebKit has none: `filter` is not on the 2D context). */
+const HAS_CTX_FILTER = typeof CanvasRenderingContext2D !== 'undefined' && 'filter' in CanvasRenderingContext2D.prototype;
+
+/** Shared unfiltered staging canvas for soften(). */
+let stage: { canvas: HTMLCanvasElement; ctx: Ctx2D } | null = null;
+/** Reused buffers for the WebKit fallback (sized for the largest soft canvas so far). */
+let scratch: { a: Float32Array; b: Float32Array } | null = null;
+const outImages = new WeakMap<Ctx2D, ImageData>();
+
+/**
+ * Upsample the alpha of a 1-px-per-tile RGBA image to `soft` px per tile with `margin` tiles around
+ * it (nearest: the blur that follows smooths the blocks). With `clamp` the margin repeats the edge
+ * tiles, else it is transparent. Writes (w + 2·margin)·soft × (h + 2·margin)·soft values into `out`.
+ * Pure; exported for tests.
+ */
+export function upsampleAlpha(src: Uint8ClampedArray, w: number, h: number, soft: number, margin: number, clamp: boolean, out: Float32Array): void {
+  const W = (w + margin * 2) * soft;
+  const H = (h + margin * 2) * soft;
+  for (let y = 0; y < H; y++) {
+    const ty0 = Math.floor(y / soft) - margin;
+    const ty = ty0 < 0 ? 0 : ty0 >= h ? h - 1 : ty0;
+    const rowOut = !clamp && (ty0 < 0 || ty0 >= h);
+    for (let x = 0; x < W; x++) {
+      const tx0 = Math.floor(x / soft) - margin;
+      if (rowOut || (!clamp && (tx0 < 0 || tx0 >= w))) {
+        out[y * W + x] = 0;
+        continue;
+      }
+      const tx = tx0 < 0 ? 0 : tx0 >= w ? w - 1 : tx0;
+      out[y * W + x] = src[(ty * w + tx) * 4 + 3];
+    }
+  }
+}
+
+/**
+ * Three-pass box blur of a single channel, in place (approximates a gaussian of the given sigma;
+ * edges clamp). `tmp` must hold W·H values. The WebKit stand-in for ctx.filter blur: fog and Blight
+ * are one colour each, so only alpha needs blurring. Pure; exported for tests.
+ */
+export function boxBlurAlpha(a: Float32Array, W: number, H: number, sigma: number, tmp: Float32Array = new Float32Array(W * H)): void {
+  if (W <= 0 || H <= 0 || !(sigma > 0)) return;
+  const r = Math.max(1, Math.round(Math.sqrt((12 * sigma * sigma) / 3 + 1) / 2));
+  const inv = 1 / (2 * r + 1);
+  const pass = (src: Float32Array, dst: Float32Array, horiz: boolean): void => {
+    const len = horiz ? W : H;
+    const lines = horiz ? H : W;
+    const step = horiz ? 1 : W;
+    for (let l = 0; l < lines; l++) {
+      const base = horiz ? l * W : l;
+      let acc = 0;
+      for (let k = -r; k <= r; k++) acc += src[base + Math.min(len - 1, Math.max(0, k)) * step];
+      for (let i = 0; i < len; i++) {
+        dst[base + i * step] = acc * inv;
+        acc += src[base + Math.min(len - 1, i + r + 1) * step] - src[base + Math.max(0, i - r) * step];
+      }
+    }
+  };
+  for (let n = 0; n < 3; n++) {
+    pass(a, tmp, true);
+    pass(tmp, a, false);
+  }
+}
+
 /**
  * Upsample a 1-px-per-tile image into a blurred canvas (done only when the source version changes).
- * With `clamp`, the edge rows/columns are stretched into the margin so the blur does not fade at the map border.
+ * With `clamp`, the edge rows/columns and corners are stretched into the margin so the blur does not
+ * fade at the map border. The whole clamped image is staged unfiltered and blurred in ONE pass:
+ * blurring each strip separately left the border tiles only ~75% fogged (unexplored terrain showed
+ * through along the map edge). WebKit has no ctx.filter: there the alpha is upsampled and box-blurred
+ * in JS from `src` (the layer's 1-px RGBA, one colour) and put straight into the soft canvas.
  */
-function soften(ctx: Ctx2D, raw: HTMLCanvasElement, w: number, h: number, blurPx: number, clamp: boolean): void {
+function soften(ctx: Ctx2D, raw: HTMLCanvasElement, src: ImageData, w: number, h: number, blurPx: number, clamp: boolean): void {
   const W = (w + MARGIN * 2) * SOFT;
   const H = (h + MARGIN * 2) * SOFT;
-  const o = MARGIN * SOFT;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, W, H);
-  ctx.imageSmoothingEnabled = true;
-  ctx.filter = `blur(${blurPx}px)`;
-  if (clamp) {
-    ctx.drawImage(raw, 0, 0, w, 1, o, 0, w * SOFT, o);
-    ctx.drawImage(raw, 0, h - 1, w, 1, o, o + h * SOFT, w * SOFT, o);
-    ctx.drawImage(raw, 0, 0, 1, h, 0, o, o, h * SOFT);
-    ctx.drawImage(raw, w - 1, 0, 1, h, o + w * SOFT, o, o, h * SOFT);
+  if (!HAS_CTX_FILTER) {
+    softenInJs(ctx, src, w, h, W, H, blurPx, clamp);
+    return;
   }
-  ctx.drawImage(raw, o, o, w * SOFT, h * SOFT);
+  const o = MARGIN * SOFT;
+  if (!stage || stage.canvas.width !== W || stage.canvas.height !== H) stage = makeCanvas(W, H);
+  const g = stage.ctx;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, W, H);
+  g.imageSmoothingEnabled = true;
+  if (clamp) {
+    g.drawImage(raw, 0, 0, w, 1, o, 0, w * SOFT, o);
+    g.drawImage(raw, 0, h - 1, w, 1, o, o + h * SOFT, w * SOFT, o);
+    g.drawImage(raw, 0, 0, 1, h, 0, o, o, h * SOFT);
+    g.drawImage(raw, w - 1, 0, 1, h, o + w * SOFT, o, o, h * SOFT);
+    g.drawImage(raw, 0, 0, 1, 1, 0, 0, o, o);
+    g.drawImage(raw, w - 1, 0, 1, 1, o + w * SOFT, 0, o, o);
+    g.drawImage(raw, 0, h - 1, 1, 1, 0, o + h * SOFT, o, o);
+    g.drawImage(raw, w - 1, h - 1, 1, 1, o + w * SOFT, o + h * SOFT, o, o);
+  }
+  g.drawImage(raw, o, o, w * SOFT, h * SOFT);
+  ctx.clearRect(0, 0, W, H);
+  ctx.filter = `blur(${blurPx}px)`;
+  ctx.drawImage(stage.canvas, 0, 0);
   ctx.filter = 'none';
+}
+
+/** WebKit soften: no canvas readback, alpha-only blur (about 1 ms on a 64-tile map). */
+function softenInJs(ctx: Ctx2D, src: ImageData, w: number, h: number, W: number, H: number, blurPx: number, clamp: boolean): void {
+  const n = W * H;
+  if (!scratch || scratch.a.length < n) scratch = { a: new Float32Array(n), b: new Float32Array(n) };
+  const a = scratch.a.subarray(0, n);
+  upsampleAlpha(src.data, w, h, SOFT, MARGIN, clamp, a);
+  boxBlurAlpha(a, W, H, blurPx, scratch.b.subarray(0, n));
+  const d = src.data;
+  let out = outImages.get(ctx);
+  if (!out || out.width !== W || out.height !== H) {
+    out = ctx.createImageData(W, H);
+    outImages.set(ctx, out);
+  }
+  const o = out.data;
+  const r = d[0];
+  const g = d[1];
+  const b = d[2];
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    o[j] = r;
+    o[j + 1] = g;
+    o[j + 2] = b;
+    o[j + 3] = a[i];
+  }
+  ctx.putImageData(out, 0, 0);
 }
 
 export class BlightLayer {
@@ -223,7 +329,7 @@ export class BlightLayer {
     this.version = bl.version;
     writeBlightPixels(bl.tiles, this.img.data);
     this.ctx.putImageData(this.img, 0, 0);
-    soften(this.softCtx, this.canvas, this.w, this.h, SOFT * 0.55, false);
+    soften(this.softCtx, this.canvas, this.img, this.w, this.h, SOFT * 0.55, false);
     this.edges = blightEdgeTiles(bl.tiles, this.w, this.h);
     this.wardEdges = bl.ward ? wardEdgeSegments(bl.tiles, bl.ward, this.w, this.h) : new Float32Array(0);
     let any = false;
@@ -338,7 +444,7 @@ export class FogLayer {
     this.version = world.fog.version;
     writeFogPixels(world.fog.state, this.img.data);
     this.ctx.putImageData(this.img, 0, 0);
-    soften(this.softCtx, this.canvas, this.w, this.h, SOFT * 0.6, true);
+    soften(this.softCtx, this.canvas, this.img, this.w, this.h, SOFT * 0.6, true);
     return true;
   }
 

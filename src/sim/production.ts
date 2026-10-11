@@ -14,7 +14,7 @@ import { alert, emit } from './alerts';
 import { resolveTarget } from './claims';
 import { core, ticks } from './core';
 import { getBuilding, getEntity, killEntity, spawnUnit } from './entities';
-import { normaliseTreeTarget } from './economy';
+import { rallyTreeTarget } from './economy';
 import { orderUnit } from './orders';
 import { findSpawnTile } from './placement';
 import { canPay, missingReason, pay, recomposeEffects, refund } from './players';
@@ -195,7 +195,7 @@ function applyRally(world: World, b: Building, u: Unit): void {
       }
     }
     if (r.tile !== undefined) {
-      const tree = normaliseTreeTarget(world, u, r.tile);
+      const tree = rallyTreeTarget(world, u, r.tile);
       if (tree) {
         orderUnit(world, u, { type: 'gather', target: tree });
         return;

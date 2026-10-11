@@ -3,12 +3,13 @@
  * composition under the pool caps, waveBank), intel and the Horn, target precedence, launch
  * (Spent, Noble), raids (SHOULD) and wave broken.
  */
-import { ADAPTATION, ASCENDANT, DEPTH, DIRECTOR, GARRISON, MODIFIER_NUMBERS, NOBLE, RAID, floorEps, raidValue, waveInterval } from '../../data/balance';
+import { ASCENDANT, DEPTH, DIRECTOR, GARRISON, MODIFIER_NUMBERS, NOBLE, RAID, floorEps, raidValue, waveInterval } from '../../data/balance';
 import { DOCTRINES } from '../../data/doctrines';
 import { TEXT } from '../../data/text';
 import { PLAYER, TICK_RATE, type DoctrineId, type EnemyUnitId, type Entity, type Unit, type UnitClass, type World } from '../types';
 import { beginAdvance } from './ai';
 import {
+  adaptationBonus,
   adaptationFor,
   cappedBank,
   compassDir,
@@ -96,9 +97,10 @@ export function musterWave(world: World, st: EncRuntime, nest: NestRec | null, n
   const notes: string[] = [];
   const extra: Partial<Record<EnemyUnitId, number>> = {};
   const army = playerArmy(world);
-  const adapt = adaptationFor(army.counts, army.total, Math.min(st.depth, 7));
+  const adapt = adaptationFor(army.counts, army.total, Math.min(st.depth, 7), n);
   if (adapt) {
-    extra[adapt.counter] = (extra[adapt.counter] ?? 0) + ADAPTATION.weightBonus;
+    const own = DOCTRINES[doctrine].weights[adapt.counter] ?? 0;
+    extra[adapt.counter] = (extra[adapt.counter] ?? 0) + adaptationBonus(own);
     notes.push(TEXT.adaptation(adapt.word));
   }
   const weights = doctrineWeights(doctrine, Math.min(st.depth, 7), extra);
@@ -348,7 +350,7 @@ export function launchWave(world: World, st: EncRuntime, wave: WaveRec, killerId
   }
   const nest = st.nests.find((x) => x.id === wave.nestId);
   if (nest && nest.alive) {
-    nest.spent = spentOnLaunch(wave.n, world.tick, SEC);
+    nest.spent = spentOnLaunch(wave.n, world.tick, SEC, nest.spentExtra);
     syncNestSpent(world, nest);
   }
   emit(world, { t: 'waveLaunch', wave: wave.n, nestId: wave.nestId, x: wave.musterX, y: wave.musterY });
@@ -449,10 +451,11 @@ export function breakWave(world: World, st: EncRuntime, wave: WaveRec): void {
   const nest = st.nests.find((x) => x.id === wave.nestId);
   let text = `Wave ${wave.n} broken.`;
   if (nest && nest.alive) {
-    nest.spent = spentOnBroken(nest.spent, wave.n, world.tick, SEC);
+    nest.spent = spentOnBroken(nest.spent, wave.n, world.tick, SEC, nest.spentExtra);
     syncNestSpent(world, nest);
     if (spentActive(nest.spent, world.tick) && nest.spent.wave === wave.n) {
-      text = TEXT.waveBroken(wave.n, nest.dir, fmtClock((nest.spent.until - world.tick) / SEC));
+      const structure = nest.kind === 'heart' ? 'Root Heart' : 'Nest';
+      text = TEXT.waveBroken(wave.n, nest.dir, fmtClock((nest.spent.until - world.tick) / SEC), structure);
     }
   }
   emit(world, { t: 'waveBroken', wave: wave.n, nestId: wave.nestId });

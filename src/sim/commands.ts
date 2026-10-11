@@ -145,9 +145,10 @@ function smart(world: World, cmd: Extract<Command, { type: 'smart' }>): CommandR
     const b = target;
     const needsWork = !b.built || b.hp < b.maxHp;
     if (needsWork) {
+      // Same rule as the build / repair commands: queue only behind build work or a queue.
       for (const u of tillers) {
         directCommand(world, u, true);
-        orderUnit(world, u, { type: 'build', buildingId: b.id }, queue);
+        orderUnit(world, u, { type: 'build', buildingId: b.id }, queueBuild(u, queue));
       }
       groupMove(world, others, cmd.x, cmd.y, 'move', queue);
       emit(world, { t: 'command', kind: 'build', x: b.x, y: b.y, targetId: b.id });
@@ -157,8 +158,9 @@ function smart(world: World, cmd: Extract<Command, { type: 'smart' }>): CommandR
       const movers = [...others];
       for (const u of tillers) {
         if (u.carry && u.carry.amount > 0) {
+          // A gathering Tiller deposits now rather than behind its endless gather order.
           directCommand(world, u, true);
-          orderUnit(world, u, { type: 'deposit', buildingId: b.id }, queue);
+          orderUnit(world, u, { type: 'deposit', buildingId: b.id }, queue && u.queue.length > 0);
         } else movers.push(u);
       }
       groupMove(world, movers, cmd.x, cmd.y, 'move', queue);

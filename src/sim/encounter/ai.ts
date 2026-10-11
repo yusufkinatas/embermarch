@@ -9,6 +9,7 @@
 import { DIRECTOR, ENEMY_AI, GARRISON, RAID } from '../../data/balance';
 import { UNITS } from '../../data/units';
 import { killEntity } from '../entities';
+import { buildingStats } from '../stats';
 import { ENEMY, PLAYER, TICK_DT, TICK_RATE, type Building, type Entity, type Unit, type World } from '../types';
 import { currentAttackTarget, driveAdvance, driveAttack, driveHold, driveMove } from './drive';
 import { centerOf, dist, distToEntity, hearth, isPlayerTarget, liveBuilding, liveEntity, liveUnit, unitEdgeDist } from './geom';
@@ -19,6 +20,7 @@ const SEC = TICK_RATE;
 const RECENT_ATTACKER_TICKS = Math.round(ENEMY_AI.recentAttackerWindow * SEC);
 const IGNORE_TICKS = Math.round(ENEMY_AI.ignoreTime * SEC);
 const DISSOLVE_TICKS = Math.round(DIRECTOR.dissolveTime * SEC);
+const COMMIT_TICKS = Math.round(ENEMY_AI.commitAfter * SEC);
 const AT_GOAL = 1.5;
 /** Edge distance at which an advancing unit switches to attacking its goal building. */
 const GOAL_ENGAGE = 4;
@@ -62,6 +64,13 @@ export interface PickOpts {
   aggro: number;
   /** Standing forces only consider targets within this distance of the anchor. */
   anchor?: { x: number; y: number; r: number };
+  /** Committed wave unit (commit rule): skip player buildings other than this goal id and u.blockedBy. */
+  commitGoal?: number;
+}
+
+/** Commit rule: a committed wave unit ignores player buildings other than its goal and its blocker. */
+function skipBuilding(u: Unit, e: Entity, o: PickOpts): boolean {
+  return o.commitGoal !== undefined && e.kind === 'building' && e.id !== o.commitGoal && e.id !== u.blockedBy;
 }
 
 function withinAnchor(e: Entity, o: PickOpts): boolean {
@@ -72,7 +81,7 @@ function withinAnchor(e: Entity, o: PickOpts): boolean {
 /** Classify an entity under the engage priority rules (PRI_NONE if it no longer qualifies). */
 function classify(world: World, st: EncRuntime, u: Unit, ai: EnemyAI, e: Entity, o: PickOpts, slack: number): number {
   const tick = world.tick;
-  if (!isPlayerTarget(e) || ignored(ai, e.id, tick) || !withinAnchor(e, o)) return PRI_NONE;
+  if (!isPlayerTarget(e) || ignored(ai, e.id, tick) || !withinAnchor(e, o) || skipBuilding(u, e, o)) return PRI_NONE;
   if (ai.forcedId === e.id && tick < ai.forcedUntil) return PRI_FORCED;
   if (e.kind === 'unit') {
     const d = unitEdgeDist(u, e);
@@ -124,7 +133,7 @@ export function pickTarget(world: World, st: EncRuntime, u: Unit, ai: EnemyAI, o
   // 2. Whoever hit it in the last 3 s.
   if (u.lastAttackerId && tick - u.lastDamagedTick <= RECENT_ATTACKER_TICKS) {
     const a = liveEntity(world, u.lastAttackerId);
-    if (isPlayerTarget(a) && !ignored(ai, a.id, tick) && withinAnchor(a, o)) return { e: a, pri: PRI_ATTACKER };
+    if (isPlayerTarget(a) && !ignored(ai, a.id, tick) && withinAnchor(a, o) && !skipBuilding(u, a, o)) return { e: a, pri: PRI_ATTACKER };
   }
   // 3. The nearest player unit within the acquire radius of the origin.
   for (const p of st.playerUnits) {
@@ -142,7 +151,7 @@ export function pickTarget(world: World, st: EncRuntime, u: Unit, ai: EnemyAI, o
     if (b && b.owner === PLAYER && !ignored(ai, b.id, tick)) return { e: b, pri: PRI_BUILDING };
   }
   for (const b of playerBuildings(world)) {
-    if (ignored(ai, b.id, tick) || !withinAnchor(b, o)) continue;
+    if (ignored(ai, b.id, tick) || !withinAnchor(b, o) || skipBuilding(u, b, o)) continue;
     const d = unitEdgeDist(u, b);
     if (d <= ENEMY_AI.buildingRadius && d < bestD) {
       bestD = d;
@@ -309,6 +318,52 @@ function checkDissolve(world: World, u: Unit, ai: EnemyAI): boolean {
   return false;
 }
 
+/** Player forces within the commit radius: 2 = a military unit, 1 = only the Warden, 0 = none. */
+function forcesNear(st: EncRuntime, u: Unit): 0 | 1 | 2 {
+  const r = ENEMY_AI.commitArmyRadius;
+  let near: 0 | 1 = 0;
+  for (const p of st.playerUnits) {
+    if (!p.alive || p.untargetable || p.cls === 'worker') continue;
+    if (dist(u.x, u.y, p.x, p.y) > r) continue;
+    if (p.cls !== 'hero') return 2;
+    near = 1;
+  }
+  return near;
+}
+
+/** Inside the Hearth's own fire (its attack range + 1): the Hearth is already fighting this unit. */
+function underHearthFire(world: World, u: Unit): boolean {
+  const h = hearth(world);
+  const atk = h ? buildingStats(world, PLAYER, 'hearth').attack : null;
+  return !!h && !!atk && unitEdgeDist(u, h) <= atk.range + 1;
+}
+
+/**
+ * Wave commit rule (§I): time spent on a player building other than the wave goal (and not the
+ * blocker) counts while no player military unit or Warden is within 8 tiles and the unit stands
+ * outside the Hearth's range. After ENEMY_AI.commitAfter the unit commits and marches on its goal;
+ * a player military unit within 8 tiles resets it (the Warden alone only pauses the count).
+ * Returns true when the unit has just committed (the caller re-picks its target).
+ */
+function updateCommit(world: World, st: EncRuntime, u: Unit, ai: EnemyAI, target: Entity | null, goal: Goal | null): boolean {
+  const tick = world.tick;
+  const last = ai.siegeTick ?? -1;
+  ai.siegeTick = tick;
+  const sieging = !!target && target.kind === 'building' && target.id !== goal?.id && target.id !== u.blockedBy;
+  if (!sieging && !ai.committed) return false;
+  const near = forcesNear(st, u);
+  if (near === 2) {
+    ai.committed = false;
+    ai.siegeTicks = 0;
+    return false;
+  }
+  if (ai.committed || !sieging || near === 1 || underHearthFire(world, u)) return false;
+  ai.siegeTicks = (ai.siegeTicks ?? 0) + (last >= 0 ? Math.min(tick - last, 2 * THINK_TICKS) : 0);
+  if (ai.siegeTicks < COMMIT_TICKS) return false;
+  ai.committed = true;
+  return true;
+}
+
 /** Advancing unit think: engage by priority with a 6-tile chase leash, otherwise advance to the goal. */
 export function thinkAdvance(world: World, st: EncRuntime, u: Unit, ai: EnemyAI, wave: WaveRec | null): void {
   const tick = world.tick;
@@ -326,7 +381,17 @@ export function thinkAdvance(world: World, st: EncRuntime, u: Unit, ai: EnemyAI,
   }
 
   const goal = advanceGoal(world, st, u, ai, wave);
-  const target = chooseTarget(world, st, u, ai, { ox: u.x, oy: u.y, aggro: raidAggro(world, st, u, ai) });
+  const opts: PickOpts = { ox: u.x, oy: u.y, aggro: raidAggro(world, st, u, ai) };
+  if (ai.role === 'wave' && ai.committed) opts.commitGoal = goal?.id ?? 0;
+  let target = chooseTarget(world, st, u, ai, opts);
+  if (ai.role === 'wave') {
+    const wasCommitted = !!ai.committed;
+    const committedNow = updateCommit(world, st, u, ai, target, goal);
+    if (committedNow || (wasCommitted && !ai.committed)) {
+      opts.commitGoal = ai.committed ? (goal?.id ?? 0) : undefined;
+      target = chooseTarget(world, st, u, ai, opts);
+    }
+  }
   if (target) {
     if (ai.state !== 'engage' || Number.isNaN(ai.engageX)) {
       ai.engageX = u.x;

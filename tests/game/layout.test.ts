@@ -1,7 +1,7 @@
 /** Viewport layout helpers: HUD scale and start zoom (B11), edge markers clear of the Horn (B5). */
 import { describe, expect, it } from 'vitest';
-import { LABEL_FIT_CHAR, clearOfRect, labelShift } from '../../src/game/hud/edgeArrows';
-import { HUD_SCALE_MAX, hudScale, maxZoomFor, startZoom } from '../../src/game/hud/hud';
+import { LABEL_FIT_CHAR, LABEL_LINE, clearOfRect, labelShift, stackLabels } from '../../src/game/hud/edgeArrows';
+import { HUD_SCALE_MAX, HUD_SCALE_PHONE, hudScale, maxZoomFor, startZoom } from '../../src/game/hud/hud';
 import { BattleCamera } from '../../src/game/battleCamera';
 import { Camera } from '../../src/render/camera';
 
@@ -117,5 +117,89 @@ describe('BattleCamera focus across a resize (B11a)', () => {
     resize(c, 1280, 720);
     const after = c.playfieldCentre();
     expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeLessThan(0.01);
+  });
+});
+
+describe('phone HUD scale (final fix pass B2)', () => {
+  it('a landscape phone (shortest side under 500 px) goes down to 0.6; desktop sizes keep the 0.85 floor', () => {
+    expect(hudScale(734, 343)).toBe(HUD_SCALE_PHONE); // iPhone 15 landscape
+    expect(HUD_SCALE_PHONE).toBe(0.6);
+    expect(hudScale(892, 412)).toBe(0.6); // Galaxy A55 landscape
+    expect(hudScale(1024, 600)).toBe(0.85);
+    expect(hudScale(1280, 720)).toBe(1);
+    expect(hudScale(1600, 900)).toBe(1.25);
+  });
+});
+
+describe('top HUD band clamp (final fix pass B7)', () => {
+  function cam(): BattleCamera {
+    const c = new BattleCamera();
+    c.setMapSize(56, 56);
+    c.zoom = 1;
+    c.topInset = 40; // 32 × 1.25
+    c.bottomInset = 213;
+    c.setViewport(1600, 900);
+    return c;
+  }
+
+  it('without a band the clamp is the shared Camera clamp', () => {
+    const c = cam();
+    const ref = new Camera();
+    Object.assign(ref, { mapW: 56, mapH: 56, zoom: 1, topInset: 40, bottomInset: 213, viewW: 1600, viewH: 900 });
+    c.panBy(0, -10000);
+    ref.panBy(0, -10000);
+    expect(c.y).toBeCloseTo(ref.y, 6);
+    expect(c.y).toBeCloseTo(-2 - 40 / 32, 6);
+  });
+
+  it('a pan can bring map row 0 out from under a 140 px tracker band (half a tile below it)', () => {
+    const c = cam();
+    c.topBand = 140;
+    c.panBy(0, -10000);
+    expect(c.worldToScreen(0, 0).y).toBeCloseTo(140 + 16, 6);
+    c.zoomAt(1.2, 800, 450);
+    c.panBy(0, -10000);
+    expect(c.worldToScreen(0, 0).y).toBeCloseTo(140 + 0.5 * c.scale, 6);
+  });
+
+  it('a band no lower than the top bar plus the margin changes nothing', () => {
+    const c = cam();
+    c.topBand = 40 + 1.5 * 32;
+    c.panBy(0, -10000);
+    expect(c.y).toBeCloseTo(-2 - 40 / 32, 6);
+  });
+
+  it('centerOn frames exactly as before (H, Space and the opening view do not show more void)', () => {
+    const c = cam();
+    const ref = cam();
+    c.topBand = 140;
+    c.centerOn(10, 3);
+    ref.centerOn(10, 3);
+    expect(c.y).toBeCloseTo(ref.y, 6);
+    expect(c.y).toBeCloseTo(-2 - 40 / 32, 6);
+  });
+});
+
+describe('stackLabels (edge labels on the same edge do not run into each other, B9)', () => {
+  it('two labels side by side on the top edge: the second drops below the first', () => {
+    const a = { x: 700, y: 120, len: 'Spent 0:09 · 39 tiles'.length };
+    const b = { x: 760, y: 120, len: 'Wave 3'.length };
+    const dy = stackLabels([a, b], 1.25);
+    expect(dy[0]).toBe(0);
+    expect(dy[1]).toBeGreaterThanOrEqual(LABEL_LINE * 1.25);
+  });
+
+  it('labels far apart, hidden slots and empty labels are left alone', () => {
+    const dy = stackLabels([{ x: 200, y: 120, len: 6 }, null, { x: 900, y: 120, len: 6 }, { x: 905, y: 400, len: 0 }], 1);
+    expect(dy).toEqual([0, 0, 0, 0]);
+  });
+
+  it('three labels on one spot stack into three rows; near the bottom they rise instead', () => {
+    const at = { x: 50, y: 300, len: 12 };
+    const dy = stackLabels([at, at, at], 1);
+    expect(new Set(dy).size).toBe(3);
+    expect([...dy].sort((p, q) => p - q)).toEqual([0, LABEL_LINE + 2, 2 * (LABEL_LINE + 2)]);
+    const low = stackLabels([{ x: 50, y: 680, len: 12 }, { x: 52, y: 680, len: 12 }], 1, 700);
+    expect(low[1]).toBeLessThanOrEqual(-(LABEL_LINE + 2));
   });
 });

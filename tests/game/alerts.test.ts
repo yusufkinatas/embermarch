@@ -14,7 +14,12 @@ import {
   edgePlacement,
   lossText,
 } from '../../src/game/alerts';
-import { addBuilding, addUnit, makeWorld } from './helpers';
+import { addBuilding, addThicket, addUnit, makeWorld } from './helpers';
+import { canPlaceBuilding } from '../../src/sim/queries';
+import { issueCommand } from '../../src/sim/world';
+import { PLAYER, type Unit } from '../../src/sim/types';
+import { ucore } from '../../src/sim/core';
+import { makeWorld as makeSimWorld, step as simStep, units as simUnits } from '../sim/helpers';
 
 describe('AlertFeed', () => {
   it('keeps at most 5 toasts, newest last', () => {
@@ -167,5 +172,78 @@ describe('UnattendedFoundations (B1 safety net)', () => {
     expect(u.update(world)).toEqual([]); // the clock restarted at 20
     world.time = 20 + UNATTENDED_AFTER;
     expect(u.update(world).map((x) => x.id)).toEqual([f.id]);
+  });
+});
+
+describe('UnattendedFoundations: parked and stuck build orders (final fix pass B3)', () => {
+  it('no notice while a 25 s Hearth Watch rally parks the build in the saved order', () => {
+    const w = makeSimWorld({ playerEffects: [{ kind: 'flag', flag: 'hearth_watch' }] });
+    w.debug.revealAll = true;
+    const ts = simUnits(w, PLAYER, 'tiller').slice(0, 2);
+    let site: { tx: number; ty: number } | null = null;
+    for (let r = 0; r < 8 && !site; r++) {
+      for (let dy = -r; dy <= r && !site; dy++) {
+        for (let dx = -r; dx <= r && !site; dx++) if (canPlaceBuilding(w, 'muster_hall', 12 + dx, 6 + dy).ok) site = { tx: 12 + dx, ty: 6 + dy };
+      }
+    }
+    expect(site).not.toBeNull();
+    expect(issueCommand(w, { type: 'build', unitIds: ts.map((t) => t.id), building: 'muster_hall', tx: site!.tx, ty: site!.ty }).ok).toBe(true);
+    const b = w.buildings.filter((x) => x.type === 'muster_hall').at(-1)!;
+    simStep(w, 3);
+    expect(ts[0].order.type).toBe('build');
+    expect(issueCommand(w, { type: 'rallyHearth' }).ok).toBe(true);
+    expect(ts[0].order.type).not.toBe('build'); // the rally parked it
+    const un = new UnattendedFoundations();
+    let firstAt = -1;
+    for (let i = 0; i < 20 * 30; i++) {
+      if (firstAt < 0 && un.update(w).some((x) => x.id === b.id)) firstAt = w.time;
+      simStep(w, 0.05);
+    }
+    expect(firstAt).toBe(-1);
+    // The builders went back to it after the rally.
+    expect(ts.some((t) => t.order.type === 'build' || b.built)).toBe(true);
+  });
+
+  it('a build queued behind a gather is not attended: the notice fires after 15 s', () => {
+    const world = makeWorld();
+    const tiller = addUnit(world, 'tiller', 5, 5);
+    const thicket = addThicket(world, 3, 3);
+    const f = addBuilding(world, 'cottage', 10, 10, 0, false);
+    tiller.order = { type: 'gather', target: { kind: 'node', id: thicket.id } };
+    tiller.queue = [{ type: 'build', buildingId: f.id }];
+    const u = new UnattendedFoundations();
+    world.time = 0;
+    expect(u.update(world)).toEqual([]);
+    world.time = UNATTENDED_AFTER - 0.1;
+    expect(u.update(world)).toEqual([]);
+    world.time = UNATTENDED_AFTER;
+    expect(u.update(world).map((x) => x.id)).toEqual([f.id]);
+  });
+
+  it('a build queued behind a move, or parked by flee in the saved queue, counts as attended', () => {
+    const world = makeWorld();
+    const a = addUnit(world, 'tiller', 5, 5);
+    const fa = addBuilding(world, 'cottage', 10, 10, 0, false);
+    a.order = { type: 'move', x: 8, y: 8 };
+    a.queue = [{ type: 'build', buildingId: fa.id }];
+    // A fleeing Tiller: sim-core parked "build fb, then build fc" in its saved order and queue.
+    const b = addUnit(world, 'tiller', 6, 5);
+    const fb = addBuilding(world, 'cottage', 14, 10, 0, false);
+    const fc = addBuilding(world, 'cottage', 18, 10, 0, false);
+    b.order = { type: 'flee', x: 2, y: 2, resumeAt: 999 } as Unit['order'];
+    ucore(world, b).savedOrder = { type: 'build', buildingId: fb.id };
+    ucore(world, b).savedQueue = [{ type: 'build', buildingId: fc.id }];
+    const u = new UnattendedFoundations();
+    for (let t = 0; t <= 40; t += 5) {
+      world.time = t;
+      expect(u.update(world)).toEqual([]);
+    }
+    // The same builds parked behind a saved gather are stuck: both are reported.
+    ucore(world, b).savedOrder = { type: 'gather', target: { kind: 'tree', tile: 0 } };
+    ucore(world, b).savedQueue = [{ type: 'build', buildingId: fb.id }, { type: 'build', buildingId: fc.id }];
+    world.time = 41;
+    u.update(world);
+    world.time = 41 + UNATTENDED_AFTER;
+    expect(u.update(world).map((x) => x.id).sort()).toEqual([fb.id, fc.id].sort());
   });
 });

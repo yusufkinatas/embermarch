@@ -8,12 +8,14 @@ import type { Entity, World } from '../sim/types';
 import { ENEMY, PLAYER } from '../sim/types';
 import type { BattleActions } from './actions';
 import { DOUBLE_CLICK_MS } from './actions';
-import { PAN_KEYS, resolveKey, shouldPreventDefault, type KeyAction } from './keys';
+import { learnKeyLayout, PAN_KEYS, resolveKey, shouldPreventDefault, type KeyAction } from './keys';
 import { classifySelection } from './selection';
 import type { BattleUIState } from './types';
 
 export const EDGE_PX = 8;
 export const DRAG_THRESHOLD_PX = 5;
+/** A one-finger touch that moves further than this (CSS px) pans instead of tapping. */
+export const TOUCH_PAN_PX = 10;
 /** Base pan speed in CSS px per second (× panSpeed). */
 export const PAN_SPEED = 900;
 
@@ -29,6 +31,8 @@ export interface InputHost {
   modalOpen(): boolean;
   /** First user gesture: unlock audio. */
   gesture(): void;
+  /** Hotkey labels changed (keyboard layout learned from a keydown): refresh badges and tooltips. */
+  layoutChanged?(): void;
 }
 
 export type Cursor = 'default' | 'select' | 'attack' | 'gather' | 'build' | 'target' | 'place' | 'pan';
@@ -36,6 +40,16 @@ export type Cursor = 'default' | 'select' | 'attack' | 'gather' | 'build' | 'tar
 export class BattleInput {
   private drag: { pointerId: number; sx: number; sy: number; moved: boolean; shift: boolean } | null = null;
   private mmb: { pointerId: number; x: number; y: number } | null = null;
+  /**
+   * Touch (phones, tablets): one finger pans; a tap selects own things or commands the selection
+   * ("tap to select, tap the ground to move or attack, drag to pan"). Two fingers pinch-zoom.
+   */
+  private touch: { pointerId: number; x: number; y: number; sx: number; sy: number; moved: boolean } | null = null;
+  /** Active touch points (client px) for the pinch. */
+  private readonly touches = new Map<number, { x: number; y: number }>();
+  private pinch: { dist: number; mx: number; my: number } | null = null;
+  /** Safari trackpad pinch (gesture events): the cumulative scale already applied. */
+  private gestureScale = 1;
   private readonly keysDown = new Set<string>();
   /** Pointer position in canvas CSS px; inside = over the window. */
   private pointer = { x: -1, y: -1, inside: false, overCanvas: false };
@@ -66,6 +80,15 @@ export class BattleInput {
       this.host.ui.hoverId = 0;
     });
     this.listen(c, 'wheel', (e) => this.onWheel(e as WheelEvent), { passive: false });
+    // A trackpad pinch over a HUD panel arrives as a Ctrl+wheel: never let it zoom the page.
+    this.listen(this.root, 'wheel', (e) => {
+      if ((e as WheelEvent).ctrlKey) e.preventDefault();
+    }, { passive: false });
+    // Desktop Safari sends trackpad pinches as gesture events (iOS too, beside the touch pointers):
+    // zoom the camera instead of the whole page.
+    this.listen(document, 'gesturestart', (e) => this.onGesture(e, true), { passive: false });
+    this.listen(document, 'gesturechange', (e) => this.onGesture(e, false), { passive: false });
+    this.listen(document, 'gestureend', (e) => e.preventDefault(), { passive: false });
     this.listen(c, 'auxclick', (e) => e.preventDefault());
     this.listen(this.root, 'contextmenu', (e) => e.preventDefault());
     this.listen(window, 'keydown', (e) => this.onKeyDown(e as KeyboardEvent));
@@ -73,6 +96,8 @@ export class BattleInput {
     this.listen(window, 'blur', () => this.reset());
     this.listen(window, 'pointermove', (e) => {
       const pe = e as PointerEvent;
+      // A finger is not a resting pointer: it must never trigger edge pan.
+      if (pe.pointerType === 'touch') return;
       const r = this.canvas.getBoundingClientRect();
       this.pointer.x = pe.clientX - r.left;
       this.pointer.y = pe.clientY - r.top;
@@ -110,6 +135,9 @@ export class BattleInput {
     this.host.ui.box = null;
     this.drag = null;
     this.mmb = null;
+    this.touch = null;
+    this.touches.clear();
+    this.pinch = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -128,7 +156,7 @@ export class BattleInput {
           dy += p.dy;
         }
       }
-      if (this.host.edgePan() && this.pointer.inside && !this.drag && !this.mmb) {
+      if (this.host.edgePan() && this.pointer.inside && !this.drag && !this.mmb && !this.touches.size) {
         const w = camera.viewW;
         const h = camera.viewH;
         const { x, y } = this.pointer;
@@ -214,6 +242,7 @@ export class BattleInput {
     const { ui, actions, camera } = this.host;
     const w = camera.screenToWorld(p.x, p.y);
     ui.mouseWorld = { x: w.x, y: w.y };
+    if (e.pointerType === 'touch' && this.touchDown(e)) return;
     if (e.button === 0) {
       if (ui.placement) {
         actions.placeAt(w.x, w.y, e.shiftKey);
@@ -245,6 +274,115 @@ export class BattleInput {
     }
   }
 
+  /**
+   * Touch pointer down with no placement / targeting mode: start a pan-or-tap (one finger) or a
+   * pinch (second finger). Returns false to let a mode (placing, A-targeting) take the tap as a click.
+   */
+  private touchDown(e: PointerEvent): boolean {
+    const { ui, actions } = this.host;
+    if (e.button !== 0) return false;
+    if (!this.touches.size && (ui.placement || ui.targeting || actions.extraMode)) return false;
+    this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    this.capture(e.pointerId);
+    if (this.touches.size === 1) {
+      this.touch = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false };
+      return true;
+    }
+    // A second finger: pinch. The first finger's tap is cancelled.
+    if (this.touch) this.touch.moved = true;
+    this.pinch = this.pinchState();
+    return true;
+  }
+
+  /** Distance and midpoint (client px) of the first two touch points. */
+  private pinchState(): { dist: number; mx: number; my: number } | null {
+    const pts = [...this.touches.values()];
+    if (pts.length < 2) return null;
+    const [a, b] = pts;
+    return { dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  }
+
+  private touchMove(e: PointerEvent): void {
+    const { camera } = this.host;
+    const pt = this.touches.get(e.pointerId);
+    if (!pt) return;
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    if (this.pinch) {
+      const next = this.pinchState();
+      if (!next) return;
+      const r = this.canvas.getBoundingClientRect();
+      camera.panBy(this.pinch.mx - next.mx, this.pinch.my - next.my);
+      camera.zoomAt(next.dist / this.pinch.dist, next.mx - r.left, next.my - r.top);
+      this.pinch = next;
+      this.hoverDirty = true;
+      return;
+    }
+    const t = this.touch;
+    if (!t || t.pointerId !== e.pointerId) return;
+    if (!t.moved && Math.hypot(e.clientX - t.sx, e.clientY - t.sy) > TOUCH_PAN_PX) t.moved = true;
+    if (t.moved) {
+      camera.panBy(t.x - e.clientX, t.y - e.clientY);
+      this.hoverDirty = true;
+    }
+    t.x = e.clientX;
+    t.y = e.clientY;
+  }
+
+  private touchUp(e: PointerEvent): void {
+    this.touches.delete(e.pointerId);
+    this.release(e.pointerId);
+    this.pointer.inside = false;
+    if (this.pinch) {
+      // Lifting one finger of a pinch ends it; the remaining finger does nothing until lifted.
+      if (this.touches.size < 2) this.pinch = null;
+      if (this.touch?.pointerId === e.pointerId) this.touch = null;
+      return;
+    }
+    const t = this.touch;
+    if (!t || t.pointerId !== e.pointerId) return;
+    this.touch = null;
+    if (t.moved) return;
+    this.tapAt(this.local(e));
+  }
+
+  /** A touch tap: own unit or building → select it (double-tap: all of the type); elsewhere → command the selection. */
+  private tapAt(p: { x: number; y: number }): void {
+    const { ui, actions, camera, world } = this.host;
+    const w = camera.screenToWorld(p.x, p.y);
+    ui.mouseWorld = { x: w.x, y: w.y };
+    const hit = actions.pick(w.x, w.y);
+    const own = !!hit && hit.owner === PLAYER;
+    const haveOwn = ui.selection.some((id) => world.entities.get(id)?.owner === PLAYER);
+    if (!own && haveOwn) {
+      actions.smartAt(w.x, w.y, false);
+      this.lastClick = null;
+    } else {
+      const now = performance.now();
+      const dbl = isDoubleClick(this.lastClick, hit, p, now);
+      actions.clickSelect(w.x, w.y, false, dbl);
+      this.lastClick = hit && hit.kind !== 'resource' && !dbl ? { at: now, id: hit.id, x: p.x, y: p.y, type: hit.type, owner: hit.owner } : null;
+    }
+    this.hoverDirty = true;
+  }
+
+  /** Safari gesture events (trackpad or touch pinch): no page zoom; the camera zooms instead. */
+  private onGesture(e: Event, start: boolean): void {
+    e.preventDefault();
+    const g = e as Event & { scale?: number; clientX?: number; clientY?: number };
+    if (start) this.gestureScale = 1;
+    const scale = typeof g.scale === 'number' && g.scale > 0 ? g.scale : 1;
+    const factor = scale / this.gestureScale;
+    this.gestureScale = scale;
+    // Touch pinches are handled from the pointers; gesture events then only block the page zoom.
+    if (start || this.touches.size || this.host.modalOpen() || !Number.isFinite(factor)) return;
+    const r = this.canvas.getBoundingClientRect();
+    const x = Number.isFinite(g.clientX) ? g.clientX! - r.left : this.pointer.x;
+    const y = Number.isFinite(g.clientY) ? g.clientY! - r.top : this.pointer.y;
+    this.host.camera.zoomAt(factor, x, y);
+    this.hoverDirty = true;
+  }
+
   private capture(id: number): void {
     try {
       this.canvas.setPointerCapture(id);
@@ -262,6 +400,11 @@ export class BattleInput {
   }
 
   private onPointerMove(e: PointerEvent): void {
+    if (this.touches.has(e.pointerId)) {
+      this.touchMove(e);
+      return;
+    }
+    if (e.pointerType === 'touch') return;
     const p = this.local(e);
     this.pointer.x = p.x;
     this.pointer.y = p.y;
@@ -281,7 +424,14 @@ export class BattleInput {
   }
 
   private onPointerUp(e: PointerEvent): void {
+    // Touch: pointerdown is not a user activation (pointerup is), so unlock audio here too.
+    this.host.gesture();
     const { ui, actions, camera } = this.host;
+    if (this.touches.has(e.pointerId)) {
+      this.touchUp(e);
+      this.hoverDirty = true;
+      return;
+    }
     if (this.mmb && e.pointerId === this.mmb.pointerId && e.button === 1) {
       this.release(e.pointerId);
       this.mmb = null;
@@ -312,6 +462,10 @@ export class BattleInput {
   }
 
   private onPointerCancel(e: PointerEvent): void {
+    if (this.touches.delete(e.pointerId)) {
+      if (this.touch?.pointerId === e.pointerId) this.touch = null;
+      if (this.touches.size < 2) this.pinch = null;
+    }
     if (this.drag?.pointerId === e.pointerId) {
       this.drag = null;
       this.host.ui.box = null;
@@ -337,6 +491,8 @@ export class BattleInput {
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable) && e.code !== 'Escape') return;
     this.host.gesture();
+    // Safari / Firefox have no Keyboard API: learn QWERTZ / AZERTY labels from what the keys type.
+    if (learnKeyLayout(e)) this.host.layoutChanged?.();
     const action = resolveKey(e);
     if (shouldPreventDefault(e, action) || PAN_KEYS[e.code]) e.preventDefault();
     if (PAN_KEYS[e.code]) {

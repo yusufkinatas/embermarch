@@ -12,7 +12,7 @@ import { Terrain } from '../../src/sim/types';
 import { BattleActions } from '../../src/game/actions';
 import { AlertFeed } from '../../src/game/alerts';
 import { HintDirector } from '../../src/game/hints';
-import { BattleInput, DOUBLE_CLICK_SLOP_PX, isDoubleClick } from '../../src/game/input';
+import { BattleInput, DOUBLE_CLICK_SLOP_PX, TOUCH_PAN_PX, isDoubleClick } from '../../src/game/input';
 import { DOUBLE_CLICK_MS } from '../../src/game/actions';
 import { createBattleUIState, type AudioSystem } from '../../src/game/types';
 
@@ -55,7 +55,13 @@ function boot() {
     ended: () => false,
     onMuteChanged() {},
   });
-  const canvas = { classList: { add() {}, remove() {} } } as unknown as HTMLCanvasElement;
+  const canvas = {
+    classList: { add() {}, remove() {} },
+    getBoundingClientRect: () => ({ left: 0, top: 0, right: 1280, bottom: 720, width: 1280, height: 720 }),
+    setPointerCapture() {},
+    releasePointerCapture() {},
+    hasPointerCapture: () => false,
+  } as unknown as HTMLCanvasElement;
   const input = new BattleInput(canvas, {} as HTMLElement, {
     world,
     ui,
@@ -126,5 +132,121 @@ describe('edge pan after window blur (B12a)', () => {
     input.update(0.1);
     input.update(0.1);
     expect(camera.x).toBe(x1);
+  });
+});
+
+/** Drive the private pointer handlers with plain event objects (no DOM). */
+function pointers(input: BattleInput) {
+  const h = input as unknown as Record<'onPointerDown' | 'onPointerMove' | 'onPointerUp' | 'onPointerCancel', (e: Partial<PointerEvent>) => void>;
+  const ev = (pointerId: number, x: number, y: number, pointerType = 'touch', button = 0): Partial<PointerEvent> => ({
+    pointerId,
+    pointerType,
+    button,
+    clientX: x,
+    clientY: y,
+    shiftKey: false,
+    preventDefault() {},
+  });
+  return {
+    down: (id: number, x: number, y: number, type = 'touch') => h.onPointerDown(ev(id, x, y, type)),
+    move: (id: number, x: number, y: number, type = 'touch') => h.onPointerMove(ev(id, x, y, type)),
+    up: (id: number, x: number, y: number, type = 'touch') => h.onPointerUp(ev(id, x, y, type)),
+    cancel: (id: number) => h.onPointerCancel(ev(id, 0, 0)),
+    tap(id: number, x: number, y: number) {
+      this.down(id, x, y);
+      this.up(id, x, y);
+    },
+  };
+}
+
+describe('touch: tap to select, tap the ground to move or attack, drag to pan (final fix pass B2)', () => {
+  it('a tap on a Tiller selects it; a tap on open ground moves it', () => {
+    const { world, ui, camera, input } = boot();
+    const p = pointers(input);
+    const tiller = world.units.find((u) => u.alive && u.owner === 0 && u.type === 'tiller')!;
+    const s = camera.worldToScreen(tiller.x, tiller.y);
+    p.tap(1, s.x, s.y);
+    expect(ui.selection).toEqual([tiller.id]);
+    // Find open ground about 2 tiles away that picks nothing.
+    const actions = (input as unknown as { host: { actions: BattleActions } }).host.actions;
+    let goal: { x: number; y: number } | null = null;
+    for (let a = 0; a < 16 && !goal; a++) {
+      const x = tiller.x + Math.cos((a / 16) * Math.PI * 2) * 2;
+      const y = tiller.y + Math.sin((a / 16) * Math.PI * 2) * 2;
+      const t = world.map.terrain[Math.floor(y) * world.map.w + Math.floor(x)];
+      if (t === Terrain.Grass && !actions.pick(x, y)) goal = { x, y };
+    }
+    expect(goal).not.toBeNull();
+    const g = camera.worldToScreen(goal!.x, goal!.y);
+    p.tap(2, g.x, g.y);
+    expect(ui.selection).toEqual([tiller.id]); // still selected
+    expect(tiller.order.type).toBe('move');
+  });
+
+  it('a one-finger drag pans the camera and neither selects nor commands', () => {
+    const { world, ui, camera, input, actions } = boot();
+    camera.centerOn(world.map.w / 2, world.map.h / 2);
+    const tiller = world.units.find((u) => u.alive && u.owner === 0 && u.type === 'tiller')!;
+    actions.setSelection([tiller.id], false);
+    const before = tiller.order.type;
+    const p = pointers(input);
+    const x0 = camera.x;
+    const y0 = camera.y;
+    p.down(1, 600, 400);
+    p.move(1, 600 - TOUCH_PAN_PX / 2, 400); // under the threshold: no pan yet
+    expect(camera.x).toBe(x0);
+    for (let i = 1; i <= 10; i++) p.move(1, 600 - i * 15, 400 - i * 6);
+    p.up(1, 450, 340);
+    // The finger moved 150 px; the first 5 px (under the pan threshold) are not applied.
+    expect(camera.x - x0).toBeCloseTo((150 - TOUCH_PAN_PX / 2) / camera.scale, 2);
+    expect(camera.x - x0).toBeGreaterThan(4);
+    expect(camera.y).toBeGreaterThan(y0);
+    expect(ui.selection).toEqual([tiller.id]);
+    expect(ui.box).toBeNull();
+    expect(tiller.order.type).toBe(before);
+  });
+
+  it('two fingers pinch-zoom around their midpoint; lifting them never taps', () => {
+    const { world, ui, camera, input } = boot();
+    camera.zoom = 1;
+    camera.centerOn(world.map.w / 2, world.map.h / 2);
+    const p = pointers(input);
+    p.down(1, 600, 400);
+    p.down(2, 700, 400);
+    p.move(2, 760, 400);
+    p.move(1, 540, 400);
+    expect(camera.zoom).toBeGreaterThan(1.2);
+    p.up(1, 540, 400);
+    p.up(2, 760, 400);
+    expect(ui.selection).toEqual([]);
+  });
+
+  it('pointercancel clears the touch: a later lift does nothing', () => {
+    const { world, ui, camera, input } = boot();
+    const p = pointers(input);
+    const tiller = world.units.find((u) => u.alive && u.owner === 0 && u.type === 'tiller')!;
+    const s = camera.worldToScreen(tiller.x, tiller.y);
+    p.down(1, s.x, s.y);
+    p.cancel(1);
+    p.up(1, s.x, s.y);
+    expect(ui.selection).toEqual([]);
+  });
+
+  it('a mouse drag still box-selects (desktop unchanged)', () => {
+    const { world, ui, camera, input } = boot();
+    const p = pointers(input);
+    const tillers = world.units.filter((u) => u.alive && u.owner === 0 && u.type === 'tiller');
+    const xs = tillers.map((u) => camera.worldToScreen(u.x, u.y));
+    const x0 = Math.min(...xs.map((q) => q.x)) - 20;
+    const y0 = Math.min(...xs.map((q) => q.y)) - 20;
+    const x1 = Math.max(...xs.map((q) => q.x)) + 20;
+    const y1 = Math.max(...xs.map((q) => q.y)) + 20;
+    const cx = camera.x;
+    p.down(1, x0, y0, 'mouse');
+    p.move(1, x1, y1, 'mouse');
+    expect(ui.box).not.toBeNull();
+    p.up(1, x1, y1, 'mouse');
+    expect(camera.x).toBe(cx);
+    expect(ui.selection.length).toBeGreaterThanOrEqual(tillers.length);
   });
 });

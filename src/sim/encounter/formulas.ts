@@ -277,11 +277,17 @@ export interface Adaptation {
 const ADAPT_WORD: Partial<Record<UnitClass, string>> = { ranged: 'bows', infantry: 'spears', cavalry: 'horses' };
 
 /**
- * If the player has >= 6 military units and >= 40% share a class (ranged, infantry, cavalry),
- * the counter type gains weight. Ranged-heavy is countered by Stagriders (Thornlings at d1).
+ * From wave ADAPTATION.fromWave (3) on, if the player has >= 10 military units and >= 55% share a
+ * class (ranged, infantry, cavalry), the counter type gains weight. Ranged-heavy is countered by
+ * Stagriders (Thornlings at d1). `wave` defaults to ADAPTATION.fromWave (no wave gate).
  */
-export function adaptationFor(classCounts: Partial<Record<UnitClass, number>>, military: number, d: number): Adaptation | null {
-  if (military < ADAPTATION.minMilitary) return null;
+export function adaptationFor(
+  classCounts: Partial<Record<UnitClass, number>>,
+  military: number,
+  d: number,
+  wave: number = ADAPTATION.fromWave,
+): Adaptation | null {
+  if (wave < ADAPTATION.fromWave || military < ADAPTATION.minMilitary) return null;
   let best: UnitClass | null = null;
   let bestShare = 0;
   for (const cls of ['ranged', 'infantry', 'cavalry'] as UnitClass[]) {
@@ -299,6 +305,11 @@ export function adaptationFor(classCounts: Partial<Record<UnitClass, number>>, m
   return { cls: best, counter, word: ADAPT_WORD[best] ?? 'ways' };
 }
 
+/** Adaptation weight bonus: ADAPTATION.weightBonus, halved when the doctrine already weights the counter >= 40. */
+export function adaptationBonus(doctrineWeight: number): number {
+  return doctrineWeight >= ADAPTATION.heavyWeightAt ? ADAPTATION.weightBonus * ADAPTATION.heavyBonusMult : ADAPTATION.weightBonus;
+}
+
 // ---------------------------------------------------------------------------
 // Spent clock (§I "Spent")
 // ---------------------------------------------------------------------------
@@ -313,18 +324,30 @@ export interface SpentClock {
 
 export const NOT_SPENT: SpentClock = { wave: -1, launchTick: -1, until: -1 };
 
-/** A Nest launches wave `wave`: Spent until SPENT.maxFromLaunch (105 s) after launch unless the wave breaks first. */
-export function spentOnLaunch(wave: number, tick: number, tickRate: number): SpentClock {
-  return { wave, launchTick: tick, until: tick + Math.round(SPENT.maxFromLaunch * tickRate) };
+/**
+ * Per-Nest distance extra in seconds: SPENT.perTile for every tile the Nest centre lies beyond
+ * SPENT.baseTiles from the Hearth centre, capped at SPENT.extraCap (32 tiles → 7 s, 44 → 19 s).
+ */
+export function spentExtra(distTiles: number): number {
+  return Math.min(SPENT.extraCap, Math.max(0, distTiles - SPENT.baseTiles) * SPENT.perTile);
+}
+
+/**
+ * A Nest launches wave `wave`: Spent until SPENT.maxFromLaunch (105 s, plus the Nest's distance
+ * extra) after launch unless the wave breaks first.
+ */
+export function spentOnLaunch(wave: number, tick: number, tickRate: number, extraS = 0): SpentClock {
+  return { wave, launchTick: tick, until: tick + Math.round((SPENT.maxFromLaunch + extraS) * tickRate) };
 }
 
 /**
  * Wave `wave` broke at `tick`. If it is the wave that made the Nest Spent and the launch cap
- * (SPENT.maxFromLaunch) has not passed, Spent ends SPENT.afterBroken (45 s) after the break.
+ * (SPENT.maxFromLaunch + extra) has not passed, Spent ends SPENT.afterBroken (45 s, plus the
+ * Nest's distance extra) after the break.
  */
-export function spentOnBroken(c: SpentClock, wave: number, tick: number, tickRate: number): SpentClock {
+export function spentOnBroken(c: SpentClock, wave: number, tick: number, tickRate: number, extraS = 0): SpentClock {
   if (c.wave !== wave || c.until < 0 || tick >= c.until) return c;
-  return { ...c, until: tick + Math.round(SPENT.afterBroken * tickRate) };
+  return { ...c, until: tick + Math.round((SPENT.afterBroken + extraS) * tickRate) };
 }
 
 export function spentActive(c: SpentClock, tick: number): boolean {

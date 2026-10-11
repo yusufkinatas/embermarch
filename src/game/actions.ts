@@ -9,7 +9,7 @@ import { HOUSES } from '../data/houses';
 import type { Camera } from '../render/camera';
 import { idleTillers, isTileExplored, pickEntityAt, playerMilitary, canPlaceBuilding, commandCard, unitsInRect, type CommandOption } from '../sim/queries';
 import type { BattleSetup, Building, Command, CommandResult, Entity, PlayerBuildingId, PlayerUnitId, ResearchId, Unit, World } from '../sim/types';
-import { PLAYER, TICK_RATE, Terrain } from '../sim/types';
+import { ENEMY, PLAYER, TICK_RATE, Terrain } from '../sim/types';
 import { issueCommand } from '../sim/world';
 import type { AlertFeed } from './alerts';
 import { formatCountdown } from './format';
@@ -374,6 +374,23 @@ export class BattleActions {
     if (res.ok) this.play('acknowledge');
   }
 
+  /**
+   * A › click: on a visible enemy unit or a seen enemy building, a direct attack on it (Bowmen and
+   * Coursers never auto-target buildings, so an attack-move would leave them idle beside a Nest);
+   * anywhere else an attack-move to the point.
+   */
+  attackAt(wx: number, wy: number, queue: boolean): void {
+    const hit = this.pick(wx, wy);
+    if (!hit || hit.kind === 'resource' || hit.owner !== ENEMY || hit.untargetable) {
+      this.attackMoveAt(wx, wy, queue);
+      return;
+    }
+    const units = this.selectedUnits();
+    if (!units.length) return;
+    const res = this.issue({ type: 'attack', unitIds: units.map((u) => u.id), targetId: hit.id, queue });
+    if (res.ok) this.play('acknowledge');
+  }
+
   stop(): void {
     const units = this.selectedUnits();
     if (!units.length) return;
@@ -609,8 +626,8 @@ export class BattleActions {
     }
   }
 
-  /** LMB while a targeting mode is active. */
-  targetAt(wx: number, wy: number, shift: boolean): void {
+  /** LMB while a targeting mode is active. `allowTarget` false (minimap): A-clicks stay attack-moves. */
+  targetAt(wx: number, wy: number, shift: boolean, allowTarget = true): void {
     if (this.extraMode?.kind === 'rally') {
       this.rallyAt(wx, wy);
       this.extraMode = null;
@@ -619,7 +636,8 @@ export class BattleActions {
     const t = this.ui.targeting;
     if (!t) return;
     if (t.kind === 'attackMove') {
-      this.attackMoveAt(wx, wy, shift);
+      if (allowTarget) this.attackAt(wx, wy, shift);
+      else this.attackMoveAt(wx, wy, shift);
       if (!shift) this.cancelModes();
       else this.queuedAttackMove = true;
       return;
